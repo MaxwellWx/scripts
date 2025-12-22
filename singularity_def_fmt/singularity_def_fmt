@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""
+Simple Singularity/Apptainer .def formatter:
+- Split into sections beginning with lines that start with '%'
+- Run `shfmt` on shell-like sections (if available)
+- Normalize whitespace for %files and %labels sections (non-destructive)
+- Preserve other sections/comments as-is
+Reads from stdin, writes to stdout.
+"""
+import re
+import subprocess
+import sys
+from shutil import which
+
+text = sys.stdin.read().splitlines()
+
+section_re = re.compile(
+    r"^(%[^\s].*)$"
+)  # line that begins a section: %post, %files, etc.
+
+# Sections considered shell code
+shell_sections = {
+    "post",
+    "runscript",
+    "test",
+    "setup",
+    "environment",
+    "startscript",
+    "postsetup",
+}
+
+parts = []  # list of (header_line_or_None, body_lines_list)
+current_header = None
+current_body = []
+
+
+def flush():
+    global current_header, current_body
+    if current_header is None and not current_body:
+        return
+    parts.append((current_header, current_body.copy()))
+    current_body.clear()
+
+
+for line in text:
+    m = section_re.match(line)
+    if m:
+        flush()
+        current_header = m.group(1).rstrip()
+    else:
+        current_body.append(line.rstrip())
+# final
+flush()
+
+
+def run_shfmt(s):
+    shfmt = which("shfmt")
+    if not shfmt:
+        return None
+    try:
+        p = subprocess.run(
+            [shfmt, "-i", "2", "-ci"],
+            input=s,
+            text=True,
+            capture_output=True,
+            timeout=5,
+        )
+        if p.returncode == 0:
+            return p.stdout
+        else:
+            return None
+    except Exception:
+        return None
+
+
+def collapse_blank_lines(lines):
+    """把连续空行压缩为单个空行；保留注释或空白行前后的空行可能性已被合并为单空行。"""
+    out = []
+    prev_blank = False
+    for l in lines:
+        is_blank = l.strip() == ""
+        if is_blank:
+            if not prev_blank:
+                out.append("")  # keep single blank
+            prev_blank = True
+        else:
+            out.append(l.rstrip())
+            prev_blank = False
+    # remove leading blank if present
+    while out and out[0] == "":
+        out.pop(0)
+    # remove trailing blank(s) (we will manage final newline at the end)
+    while out and out[-1] == "":
+        out.pop()
+    return out
+
+
+out_lines = []
+
+for idx, (header, body) in enumerate(parts):
+    if header is None:
+        # preamble before first %section
+        collapsed = collapse_blank_lines(body)
+        for l in collapsed:
+            out_lines.append(l)
+        # if there are following sections and preamble non-empty, ensure single blank line separating
+        if collapsed and len(parts) > 1:
+            out_lines.append("")
+        continue
+
+    # write section header
+    out_lines.append(header)
+    # ensure one blank line between header and body if body has any non-blank content
+    # find if body has any non-blank line
+    if any(line.strip() for line in body):
+        out_lines.append("")
+
+    secname = header.split()[0][1:].lower()
+    body_text = "\n".join(body) + ("\n" if body else "")
+
+    if secname in shell_sections:
+        formatted = run_shfmt(body_text)
+        if formatted is not None:
+            # collapse blank lines in shfmt output too
+            formatted_lines = formatted.rstrip("\n").split("\n")
+            formatted_lines = collapse_blank_lines(formatted_lines)
+            for l in formatted_lines:
+                out_lines.append(l)
+            # ensure single blank line after section (we'll collapse later globally)
+            out_lines.append("")
+            continue
+        else:
+            collapsed = collapse_blank_lines(body)
+            for l in collapsed:
+                out_lines.append(l)
+            out_lines.append("")
+            continue
+
+    if secname == "files":
+        # Normalize whitespace: keep comments and empty lines, compress whitespace between source and dest to single space
+        processed = []
+        for l in body:
+            if not l.strip() or l.lstrip().startswith("#"):
+                processed.append(l)
+            else:
+                parts_line = re.split(r"\s+", l.strip(), maxsplit=1)
+                if len(parts_line) == 2:
+                    processed.append(parts_line[0] + " " + parts_line[1])
+                else:
+                    processed.append(parts_line[0])
+        processed = collapse_blank_lines(processed)
+        for l in processed:
+            out_lines.append(l)
+        out_lines.append("")
+        continue
+
+    if secname == "labels":
+        processed = []
+        for l in body:
+            if not l.strip() or l.lstrip().startswith("#"):
+                processed.append(l)
+            else:
+                kv = re.split(r"\s+", l.strip(), maxsplit=1)
+                if len(kv) == 2:
+                    processed.append(kv[0] + " " + kv[1])
+                else:
+                    processed.append(kv[0])
+        processed = collapse_blank_lines(processed)
+        for l in processed:
+            out_lines.append(l)
+        out_lines.append("")
+        continue
+
+    # Default: collapse blank lines and keep content
+    collapsed = collapse_blank_lines(body)
+    for l in collapsed:
+        out_lines.append(l)
+    out_lines.append("")
+
+# final global cleanup: collapse any accidental multiple blank lines to single
+final_lines = []
+prev_blank = False
+for l in out_lines:
+    is_blank = l.strip() == ""
+    if is_blank:
+        if not prev_blank:
+            final_lines.append("")
+        prev_blank = True
+    else:
+        final_lines.append(l.rstrip())
+        prev_blank = False
+
+# remove leading blank(s)
+while final_lines and final_lines[0] == "":
+    final_lines.pop(0)
+# remove trailing blank(s)
+while final_lines and final_lines[-1] == "":
+    final_lines.pop()
+
+# write with a single final newline
+sys.stdout.write("\n".join(final_lines) + "\n")
