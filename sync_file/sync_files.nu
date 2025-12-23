@@ -1,74 +1,97 @@
-# sync_files.nu
+#!/usr/bin/env nu
 
-# terminal path
-let terminal_path = [
-  "/mnt/d"
-  "/home/xuanwu"
-]
-
-# nas home path
+# src & dest path config
+let terminal_path_win = "/mnt/d"
+let terminal_path_linux = "/home/xuanwu"
 let NAS_home_path = "/mnt/y"
-
-# nas group path
 let NAS_group_path = "/mnt/z/吴玄"
-
-# webdav path
 let webdav_remote = "ustcpan"
+let config_base = "/home/xuanwu/scripts/sync_file/"
 
-#log file
-let log_file = "/var/log/sync.log"
+# rule file
+let rule_win2nas = "exclude_rules_windows_nas_home"
+let rule_wsl2nas = "exclude_rules_linux_nas_home"
+let rule_nas_home2nas_group = "exclude_rules_nas_home_nas_group"
 
-# Function to log messages with timestamp
+# log file
+let log_file = ($env.HOME | path join ".cache/sync_files.log")
+
+# log function
 def log [message: string] {
   let timestamp = (date now | format date '%Y-%m-%d %H:%M:%S')
-  print $"($timestamp): ($message)"
-  $"($timestamp): ($message)\n" | save --append $log_file
+  let log_entry = $"($timestamp): ($message)"
+  print $log_entry
+  $log_entry | save --append $log_file
 }
 
-# Main script execution
+# check whether path exists
+def check-path [path: string name: string] {
+  if not ($path | path exists) {
+    log $"ERROR: Path for ($name) not found: ($path). Aborting."
+    exit 1
+  }
+}
+
+# sync function
+def run-rsync [
+  src: string
+  dest: string
+  rule_file: string
+  description: string
+  --delete # whether use delete arg
+] {
+  log $"Starting sync: ($description)..."
+
+  # rsync args
+  mut args = [-arv]
+  if $delete { $args = ($args | append "--delete") }
+  $args = ($args | append $"--exclude-from=($rule_file)")
+  $args = ($args | append "--no-links")
+  $args = ($args | append $"($src)/")
+  $args = ($args | append $"($dest)/")
+
+  # run
+  let final_args = $args
+  do { ^rsync ...$final_args }
+
+  let exit_code = $env.LAST_EXIT_CODE
+  if $exit_code == 0 {
+    log $"SUCCESS: ($description)"
+  } else {
+    log $"ERROR: ($description) failed with code ($exit_code)"
+  }
+}
+
+# main function
 log "=== Starting file synchronization process ==="
 
-# sync from windows to nas home
-log $"Starting sync from ($terminal_path.0) to ($NAS_home_path)"
-^rsync -arv --exclude-from="/home/xuanwu/Code_Program/sync_file/exclude_rules_windows_nas_home" $"($terminal_path.0)/" $"($NAS_home_path)/"
-if $env.LAST_EXIT_CODE == 0 {
-  log "sync from windows to nas home:successful"
-} else {
-  log $"Error:sync from windows to nas home failed with exit code ($env.LAST_EXIT_CODE)"
-  exit 1
-}
+# 1. check whether path exists 
+check-path $NAS_home_path "NAS Home Mount"
+check-path $NAS_group_path "NAS Group Mount"
+check-path $terminal_path_win "Windows Mount"
 
-# sync from linux to nas home
-log $"Starting sync from ($terminal_path.1) to ($NAS_home_path)"
-^rsync -arv --exclude-from="/home/xuanwu/Code_Program/sync_file/exclude_rules_linux_nas_home" $"($terminal_path.1)/" $"($NAS_home_path)/"
-if $env.LAST_EXIT_CODE == 0 {
-  log "sync from linux to nas home:successful"
-} else {
-  log $"Error:sync from linux to nas home failed with exit code ($env.LAST_EXIT_CODE)"
-  exit 1
-}
+check-path ($config_base | path join $rule_win2nas) "rule file for Windows to NAS"
+check-path ($config_base | path join $rule_wsl2nas) "rule file for WSL to NAS"
+check-path ($config_base | path join $rule_nas_home2nas_group) "rule file for NAS home to NAS group"
 
-# sync from nas home to nas group
-log $"Starting sync from ($NAS_home_path) to ($NAS_group_path)"
-try {
-  ^rsync -avr --delete --exclude-from="/home/xuanwu/Code_Program/sync_file/exclude_rules_nas_home_nas_group" $"($NAS_home_path)/" $"($NAS_group_path)/"
-} catch {
-}
+# 2. Windows -> NAS Home
+run-rsync $terminal_path_win $NAS_home_path ($config_base | path join $rule_win2nas) "Windows to NAS Home"
 
-if $env.LAST_EXIT_CODE == 0 {
-  log "sync from nas home to nas group:successful"
-} else {
-  log $"Error:sync from nas home to nas group failed with exit code ($env.LAST_EXIT_CODE)"
-}
+# 3. Linux -> NAS Home
+run-rsync $terminal_path_linux $NAS_home_path ($config_base | path join $rule_wsl2nas) "Linux to NAS Home"
 
-# sync from nas home to webdav
+# 4. NAS Home -> NAS Group
+run-rsync $NAS_home_path $NAS_group_path ($config_base | path join $rule_nas_home2nas_group) "NAS Home to NAS Group" --delete
+
+# 5. NAS Home -> WebDAV
 log $"Starting sync from ($NAS_home_path) to ustcpan"
-^rclone copy -v --progress --exclude="#recycle/**" $"($NAS_home_path)/" $"($webdav_remote):NAS_HOME"
+
+do { ^rclone copy -v --progress --transfers 4 --retries 3 --size-only --exclude="#recycle/**" $"($NAS_home_path)/" $"($webdav_remote):NAS_HOME" }
+
 if $env.LAST_EXIT_CODE == 0 {
-  log "sync from nas home to webdav:successful"
+  log "SUCCESS: sync from nas home to webdav"
 } else {
-  log $"Error:sync from nas home to webdav failed with exit code ($env.LAST_EXIT_CODE)"
-  exit 1
+  log $"ERROR: sync from nas home to webdav failed with code ($env.LAST_EXIT_CODE)"
 }
 
 log "=== All sync operations completed successfully ==="
