@@ -3,7 +3,7 @@
 # Define the main function with type annotations for better error checking
 def main [
   program: string # The name of the program/project to build
-  eshell: string # The target environment ('hf', 'ty', or 'local')
+  eshell: string # The target environment ('hf', 'ty', 'wz' or 'local')
 ] {
   # -------------------------------------------------------------------------
   # 1. Configuration & Path Resolution
@@ -45,13 +45,18 @@ def main [
   match $eshell {
     "hf" => {
       print $"Transferring image to HF cluster..."
-      scp $image_name $"hfeshell_xuanwu:~/.local/bin/($image_name)"
-      scp $image_name $"hfeshell_xuanwu:/public/share/ac58qn21ek/singularity_images/($image_name)"
+      scp $image_name $"hfcluster:~/.local/bin/($image_name)"
+      scp $image_name $"hfcluster:/public/share/ac58qn21ek/singularity_images/($image_name)"
     }
     "ty" => {
       print $"Transferring image to TY cluster..."
-      scp $image_name $"tyeshell_xuanwu:~/.local/bin/($image_name)"
-      scp $image_name $"tyeshell_xuanwu:/work/share/ac58qn21ek/singularity_images/($image_name)"
+      scp $image_name $"tycluster:~/.local/bin/($image_name)"
+      scp $image_name $"tycluster:/work/share/ac58qn21ek/singularity_images/($image_name)"
+    }
+    "wz" => {
+      print $"Transferring image to WZ cluster..."
+      scp $image_name $"wzcluster:~/.local/bin/($image_name)"
+      scp $image_name $"wzcluster:/work/share/ac58qn21ek/singularity_images/($image_name)"
     }
     "local" => {
       print "Keep image locally. No transfer performed."
