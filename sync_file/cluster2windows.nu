@@ -30,10 +30,10 @@ def main [
   ]
 
   # Base flags: archive, prune empty dirs, compress, skip owner/group (for WSL/NTFS)
-  mut args = ["-amz" "--prune-empty-dirs" "--no-o" "--no-g"]
+  mut args = ["-amz" "-v" "--prune-empty-dirs" "--no-o" "--no-g"]
 
   if $dry_run {
-    $args = ($args | append ["--dry-run" "-v"])
+    $args = ($args | append ["--dry-run"])
     print $"(ansi yellow)[DRY RUN] Command to be executed:(ansi reset)"
   }
 
