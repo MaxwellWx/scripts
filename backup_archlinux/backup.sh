@@ -15,13 +15,13 @@ mkdir -p "$PKG_LIST_DIR" "$DATA_DIR"
 
 echo "=== Arch Linux WSL Backup Pipeline ==="
 
-echo "[1/6] Backup pkgs from pacman..."
+echo "[1/7] Backup pkgs from pacman..."
 pacman -Qqen >"$PKG_LIST_DIR/pkglist-pacman.txt"
 
-echo "[2/6] Backup pkgs from AUR..."
+echo "[2/7] Backup pkgs from AUR..."
 pacman -Qqem >"$PKG_LIST_DIR/pkglist-aur.txt"
 
-echo "[3/6] Archive sensitive credentials (.ssh, .gnupg)..."
+echo "[3/7] Archive sensitive credentials (.ssh, .gnupg)..."
 SENSITIVE_DIRS=()
 [ -d "$HOME/.ssh" ] && SENSITIVE_DIRS+=(".ssh")
 [ -d "$HOME/.gnupg" ] && SENSITIVE_DIRS+=(".gnupg")
@@ -38,15 +38,38 @@ else
   echo "  -> No credentials found to archive."
 fi
 
-echo "[4/6] Archive system configuration files..."
+echo "[4/7] Archive system configuration files..."
 tar -czf "$DATA_DIR/sys_config.tar.gz" -C / etc/pacman.conf etc/pacman.d/mirrorlist etc/makepkg.conf 2>/dev/null || true
 echo "  -> System configs archived to $DATA_DIR/sys_config.tar.gz"
 
-echo "[5/6] Archive default shell configuration..."
-getent passwd "$USER" | cut -d: -f7 > "$DATA_DIR/default_shell.txt"
+echo "[5/7] Archive default shell configuration..."
+getent passwd "$USER" | cut -d: -f7 >"$DATA_DIR/default_shell.txt"
 echo "  -> Default shell ($(cat "$DATA_DIR/default_shell.txt")) recorded."
 
-echo "[6/6] Check git status of core directories..."
+echo "[6/7] Backup Windows WezTerm configuration..."
+WIN_PROFILE_CMD=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')
+
+if [ -n "$WIN_PROFILE_CMD" ]; then
+  WIN_HOME=$(wslpath "$WIN_PROFILE_CMD")
+
+  WEZTERM_WIN_DIR="$WIN_HOME/.config/wezterm"
+  WEZTERM_DOTFILES_DIR="$DOTFILES_DIR/windows_configs/wezterm"
+
+  if [ -d "$WEZTERM_WIN_DIR" ]; then
+    mkdir -p "$DOTFILES_DIR/windows_configs"
+
+    rm -rf "$WEZTERM_DOTFILES_DIR"
+
+    cp -r "$WEZTERM_WIN_DIR" "$WEZTERM_DOTFILES_DIR"
+    echo "  -> Copied WezTerm config directory from Windows to $WEZTERM_DOTFILES_DIR"
+  else
+    echo "  -> Notice: WezTerm config directory not found at $WEZTERM_WIN_DIR. Skipping."
+  fi
+else
+  echo "  -> Warning: Failed to resolve Windows User Profile path via WSL Interop."
+fi
+
+echo "[7/7] Check git status of core directories..."
 CHECK_DIRS=(
   "$DOTFILES_DIR"
   "$SCRIPTS_DIR"

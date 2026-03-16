@@ -154,6 +154,29 @@ for target_dir in */; do
 done
 EOF
 
+echo "[-] Restore Windows WezTerm configuration..."
+WIN_PROFILE_CMD=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')
+
+if [ -n "$WIN_PROFILE_CMD" ]; then
+  WIN_HOME=$(wslpath "$WIN_PROFILE_CMD")
+  WEZTERM_DOTFILES_DIR="$TARGET_HOME/dot_files/windows_configs/wezterm"
+  WIN_CONFIG_PARENT="$WIN_HOME/.config"
+  WEZTERM_WIN_DIR="$WIN_CONFIG_PARENT/wezterm"
+
+  if [ -d "$WEZTERM_DOTFILES_DIR" ]; then
+    mkdir -p "$WIN_CONFIG_PARENT"
+
+    rm -rf "$WEZTERM_WIN_DIR" 2>/dev/null || true
+
+    cp -r "$WEZTERM_DOTFILES_DIR" "$WEZTERM_WIN_DIR"
+    echo "  -> Restored WezTerm config directory to Windows at $WEZTERM_WIN_DIR."
+  else
+    echo "  -> Notice: No WezTerm config directory found in dot_files/windows_configs. Skipping."
+  fi
+else
+  echo "  -> Warning: Failed to resolve Windows User Profile path via WSL Interop."
+fi
+
 echo "[9/9] Restore default shell configuration..."
 SHELL_FILE="$BACKUP_ROOT/data/default_shell.txt"
 
