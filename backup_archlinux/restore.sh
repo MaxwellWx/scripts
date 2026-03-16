@@ -6,7 +6,7 @@ set -e
 # Core configurations
 TARGET_USER="xuanwu"
 TARGET_HOME="/home/$TARGET_USER"
-DOTFILES_REPO="git@github.com:MaxwellWx/dot_files.git"
+DOTFILES_REPO="https://github.com/MaxwellWx/dot_files.git"
 
 # 1. Intercept check: Must be executed as root
 if [ "$EUID" -ne 0 ]; then
