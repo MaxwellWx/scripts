@@ -81,10 +81,16 @@ fi
 echo "[6/8] Deploy AUR helper (yay)..."
 su - "$TARGET_USER" <<'EOF'
 set -e
+
+export http_proxy="http://127.0.0.1:7890"
+export https_proxy="http://127.0.0.1:7890"
+export all_proxy="socks5://127.0.0.1:7890"
+
 if ! command -v yay &>/dev/null; then
-  echo "  -> Installing yay..."
+  echo "  -> Installing yay via proxy..."
   rm -rf /tmp/yay  
-  git clone https://aur.archlinux.org/yay-bin.git /tmp/yay
+  
+  git clone https://aur.archlinux.org/yay.git /tmp/yay
   cd /tmp/yay
   makepkg -si --noconfirm
   rm -rf /tmp/yay
