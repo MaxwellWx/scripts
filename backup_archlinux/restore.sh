@@ -8,7 +8,7 @@ TARGET_USER="xuanwu"
 TARGET_HOME="/home/$TARGET_USER"
 DOTFILES_REPO="https://github.com/MaxwellWx/dot_files.git"
 
-# 1. Intercept check: Must be executed as root
+# Intercept check: Must be executed as root
 if [ "$EUID" -ne 0 ]; then
   echo "Error: This restore pipeline MUST be executed as root."
   exit 1
@@ -16,10 +16,25 @@ fi
 
 echo "=== Arch Linux WSL Restore Pipeline ==="
 
+# --- 动态路径解析机制 ---
+# 无论脚本被放置在何处，通过探测 data 目录准确定位 BACKUP_ROOT
+SCRIPT_DIR=$(dirname "$(realpath "$0")")
+if [ -d "$SCRIPT_DIR/data" ]; then
+  BACKUP_ROOT="$SCRIPT_DIR"
+elif [ -d "$SCRIPT_DIR/backup_archlinux/data" ]; then
+  BACKUP_ROOT="$SCRIPT_DIR/backup_archlinux"
+else
+  echo "Error: Cannot locate backup data directory (expected 'data' or 'backup_archlinux/data')."
+  exit 1
+fi
+echo "  -> Resolved BACKUP_ROOT: $BACKUP_ROOT"
+
 echo "[0/8] Restore system configurations..."
 if [ -f "$BACKUP_ROOT/data/sys_config.tar.gz" ]; then
   tar -xzf "$BACKUP_ROOT/data/sys_config.tar.gz" -C /
   echo "  -> System configs (pacman.conf, mirrorlist) restored."
+else
+  echo "  -> Warning: sys_config.tar.gz not found. Skipping."
 fi
 
 echo "[1/8] Initialize keyring and basic pkgs..."
@@ -27,7 +42,8 @@ pacman-key --init
 pacman-key --populate archlinux
 pacman -Sy --noconfirm archlinux-keyring
 pacman -Su --noconfirm
-pacman -S --needed --noconfirm base-devel git stow sudo wget tar openssh
+# Added gnupg to ensure decryption tool is strictly present
+pacman -S --needed --noconfirm base-devel git stow sudo wget tar openssh gnupg
 
 echo "[2/8] Setup target user ($TARGET_USER) and privileges..."
 if ! id "$TARGET_USER" &>/dev/null; then
@@ -43,20 +59,19 @@ default=$TARGET_USER
 EOF
 
 echo "[3/8] Migrate restore scripts and data..."
-# Detect current script location to migrate data into the target user's home
-SCRIPT_DIR=$(dirname "$(realpath "$0")")
-if [[ "$SCRIPT_DIR" != "$TARGET_HOME"* ]]; then
+# Safely migrate data into the target user's home domain
+if [[ "$BACKUP_ROOT" != "$TARGET_HOME"* ]]; then
   echo "  -> Migrating repository to $TARGET_HOME..."
-  cp -r "$SCRIPT_DIR" "$TARGET_HOME/"
-  chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/$(basename "$SCRIPT_DIR")"
-  BACKUP_ROOT="$TARGET_HOME/$(basename "$SCRIPT_DIR")/backup_archlinux"
-else
-  BACKUP_ROOT="$SCRIPT_DIR/backup_archlinux"
+  TARGET_BACKUP_ROOT="$TARGET_HOME/backup_archlinux"
+  cp -r "$BACKUP_ROOT" "$TARGET_BACKUP_ROOT"
+  chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_BACKUP_ROOT"
+  BACKUP_ROOT="$TARGET_BACKUP_ROOT"
 fi
 
 echo "[4/8] Restore sensitive credentials (SSH & GPG)..."
 if [ -f "$BACKUP_ROOT/data/secure_data.tar.gz.gpg" ]; then
-  gpg --decrypt --output "$BACKUP_ROOT/data/secure_data.tar.gz" "$BACKUP_ROOT/data/secure_data.tar.gz.gpg"
+  # loopback mode is strictly required to prevent failure in headless/WSL environments
+  gpg --pinentry-mode loopback --decrypt --output "$BACKUP_ROOT/data/secure_data.tar.gz" "$BACKUP_ROOT/data/secure_data.tar.gz.gpg"
   tar -xzf "$BACKUP_ROOT/data/secure_data.tar.gz" -C "$TARGET_HOME/"
   rm "$BACKUP_ROOT/data/secure_data.tar.gz"
 

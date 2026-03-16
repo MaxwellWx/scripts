@@ -24,11 +24,14 @@ pacman -Qqem >"$PKG_LIST_DIR/pkglist-aur.txt"
 echo "[3/5] Archive sensitive credentials (.ssh, .gnupg)..."
 SENSITIVE_DIRS=()
 [ -d "$HOME/.ssh" ] && SENSITIVE_DIRS+=(".ssh")
+[ -d "$HOME/.gnupg" ] && SENSITIVE_DIRS+=(".gnupg")
 
 if [ ${#SENSITIVE_DIRS[@]} -gt 0 ]; then
   # Use -C to change to $HOME before archiving to prevent absolute path nesting
   tar -czf "$DATA_DIR/secure_data.tar.gz" -C "$HOME" "${SENSITIVE_DIRS[@]}"
-  gpg --symmetric --cipher-algo AES256 --output "$DATA_DIR/secure_data.tar.gz.gpg" "$DATA_DIR/secure_data.tar.gz"
+
+  # Added loopback mode to force inline password prompt in WSL
+  gpg --pinentry-mode loopback --symmetric --cipher-algo AES256 --output "$DATA_DIR/secure_data.tar.gz.gpg" "$DATA_DIR/secure_data.tar.gz"
   rm "$DATA_DIR/secure_data.tar.gz"
   echo "  -> Credentials archived to $DATA_DIR/secure_data.tar.gz.gpg"
 else
