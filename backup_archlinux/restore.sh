@@ -27,7 +27,7 @@ pacman-key --init
 pacman-key --populate archlinux
 pacman -Sy --noconfirm archlinux-keyring
 pacman -Su --noconfirm
-pacman -S --needed --noconfirm base-devel git stow sudo wget tar
+pacman -S --needed --noconfirm base-devel git stow sudo wget tar openssh
 
 echo "[2/8] Setup target user ($TARGET_USER) and privileges..."
 if ! id "$TARGET_USER" &>/dev/null; then
