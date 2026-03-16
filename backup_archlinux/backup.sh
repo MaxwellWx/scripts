@@ -20,6 +20,10 @@ pacman -Qqen >"$PKG_LIST_DIR/pkglist-pacman.txt"
 
 echo "[2/7] Backup pkgs from AUR..."
 pacman -Qqem >"$PKG_LIST_DIR/pkglist-aur.txt"
+if grep -q "^topiary$" "$PKG_LIST_DIR/pkglist-aur.txt"; then
+  sed -i 's/^topiary$/topiary-bin/' "$PKG_LIST_DIR/pkglist-aur.txt"
+  echo "  -> Replaced 'topiary' with 'topiary-bin' to avoid slow compilation."
+fi
 
 echo "[3/7] Archive sensitive credentials (.ssh, .gnupg)..."
 SENSITIVE_DIRS=()
@@ -27,10 +31,8 @@ SENSITIVE_DIRS=()
 [ -d "$HOME/.gnupg" ] && SENSITIVE_DIRS+=(".gnupg")
 
 if [ ${#SENSITIVE_DIRS[@]} -gt 0 ]; then
-  # Use -C to change to $HOME before archiving to prevent absolute path nesting
   tar -czf "$DATA_DIR/secure_data.tar.gz" -C "$HOME" "${SENSITIVE_DIRS[@]}"
 
-  # Added loopback mode to force inline password prompt in WSL
   gpg --pinentry-mode loopback --symmetric --cipher-algo AES256 --output "$DATA_DIR/secure_data.tar.gz.gpg" "$DATA_DIR/secure_data.tar.gz"
   rm "$DATA_DIR/secure_data.tar.gz"
   echo "  -> Credentials archived to $DATA_DIR/secure_data.tar.gz.gpg"
@@ -51,15 +53,12 @@ WIN_PROFILE_CMD=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')
 
 if [ -n "$WIN_PROFILE_CMD" ]; then
   WIN_HOME=$(wslpath "$WIN_PROFILE_CMD")
-
   WEZTERM_WIN_DIR="$WIN_HOME/.config/wezterm"
   WEZTERM_DOTFILES_DIR="$DOTFILES_DIR/windows_configs/wezterm"
 
   if [ -d "$WEZTERM_WIN_DIR" ]; then
     mkdir -p "$DOTFILES_DIR/windows_configs"
-
     rm -rf "$WEZTERM_DOTFILES_DIR"
-
     cp -r "$WEZTERM_WIN_DIR" "$WEZTERM_DOTFILES_DIR"
     echo "  -> Copied WezTerm config directory from Windows to $WEZTERM_DOTFILES_DIR"
   else
@@ -81,7 +80,8 @@ for dir in "${CHECK_DIRS[@]}"; do
   if [ -d "$dir/.git" ]; then
     cd "$dir" || exit
     if [[ -n $(git status -s) ]]; then
-      echo "  [Warning] Uncommitted changes detected in $dir"
+      echo "  [Warning] Uncommitted changes detected in $dir."
+      echo "  >>> PLEASE COMMIT AND PUSH THESE CHANGES TO PREVENT DATA LOSS <<<"
       git status -s | sed 's/^/    /'
     fi
   elif [ -d "$dir" ]; then
