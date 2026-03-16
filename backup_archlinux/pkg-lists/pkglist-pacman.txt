@@ -22,6 +22,7 @@ neovim
 noto-fonts-cjk
 noto-fonts-emoji
 nushell
+openbsd-netcat
 openssh
 python-black
 python-pip

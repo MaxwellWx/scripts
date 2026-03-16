@@ -16,6 +16,12 @@ fi
 
 echo "=== Arch Linux WSL Restore Pipeline ==="
 
+echo "[0/8] Restore system configurations..."
+if [ -f "$BACKUP_ROOT/data/sys_config.tar.gz" ]; then
+  tar -xzf "$BACKUP_ROOT/data/sys_config.tar.gz" -C /
+  echo "  -> System configs (pacman.conf, mirrorlist) restored."
+fi
+
 echo "[1/8] Initialize keyring and basic pkgs..."
 pacman-key --init
 pacman-key --populate archlinux
@@ -73,14 +79,13 @@ else
 fi
 
 echo "[6/8] Deploy AUR helper (yay)..."
-# Switch to user context to securely compile yay
 su - "$TARGET_USER" <<'EOF'
 set -e
 if ! command -v yay &>/dev/null; then
   echo "  -> Installing yay..."
-  cd /tmp
-  git clone https://aur.archlinux.org/yay.git
-  cd yay
+  rm -rf /tmp/yay  
+  git clone https://aur.archlinux.org/yay.git /tmp/yay
+  cd /tmp/yay
   makepkg -si --noconfirm
   rm -rf /tmp/yay
 else
