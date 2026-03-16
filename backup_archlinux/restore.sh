@@ -125,7 +125,7 @@ EOF
 
 echo "[8/10] Install pkgs from AUR..."
 if [ -f "$PKG_LIST_DIR/pkglist-aur.txt" ]; then
-  AUR_PKGS=$(grep -v '^#' "$PKG_LIST_DIR/pkglist-aur.txt" | tr '\n' ' ' | xargs)
+  AUR_PKGS=$(grep -v '^#' "$PKG_LIST_DIR/pkglist-aur.txt" | grep -vwE 'yay|yay-bin' | tr '\n' ' ' | xargs)
 
   if [ -n "$AUR_PKGS" ]; then
     sudo -u "$TARGET_USER" bash -c "
