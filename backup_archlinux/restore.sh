@@ -49,8 +49,10 @@ else
 fi
 
 echo "[4/8] Restore sensitive credentials (SSH & GPG)..."
-if [ -f "$BACKUP_ROOT/data/secure_data.tar.gz" ]; then
+if [ -f "$BACKUP_ROOT/data/secure_data.tar.gz.gpg" ]; then
+  gpg --decrypt --output "$BACKUP_ROOT/data/secure_data.tar.gz" "$BACKUP_ROOT/data/secure_data.tar.gz.gpg"
   tar -xzf "$BACKUP_ROOT/data/secure_data.tar.gz" -C "$TARGET_HOME/"
+  rm "$BACKUP_ROOT/data/secure_data.tar.gz"
 
   # Strictly enforce ownership and secure permissions
   chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.ssh" "$TARGET_HOME/.gnupg" 2>/dev/null || true
