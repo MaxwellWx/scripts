@@ -1,4 +1,4 @@
-#!#!/bin/bash
+#!/bin/bash
 
 # Exit immediately if a command exits with a non-zero status
 set -e
@@ -42,7 +42,6 @@ fi
 echo "[1/10] Configure System Locale (UTF-8)..."
 if grep -q "^#en_US.UTF-8 UTF-8" /etc/locale.gen; then
   sed -i 's/^#en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen
-  sed -i 's/^#zh_CN.UTF-8 UTF-8/zh_CN.UTF-8 UTF-8/' /etc/locale.gen
   locale-gen
   echo "LANG=en_US.UTF-8" >/etc/locale.conf
   echo "  -> Locale generated and set to en_US.UTF-8."
@@ -84,9 +83,9 @@ fi
 
 echo "[5/10] Restore sensitive credentials (SSH & GPG)..."
 if [ -f "$BACKUP_ROOT/data/secure_data.tar.gz.gpg" ]; then
-  gpg --batch --yes --pinentry-mode loopback --decrypt --output "$BACKUP_ROOT/data/secure_data.tar.gz" "$BACKUP_ROOT/data/secure_data.tar.gz.gpg"
+  gpg --yes --pinentry-mode loopback --decrypt --output "$BACKUP_ROOT/data/secure_data.tar.gz" "$BACKUP_ROOT/data/secure_data.tar.gz.gpg"
   tar -xzf "$BACKUP_ROOT/data/secure_data.tar.gz" -C "$TARGET_HOME/"
-  rm "$BACKUP_ROOT/data/secure_data.tar.gz"
+  rm -f "$BACKUP_ROOT/data/secure_data.tar.gz"
 
   chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.ssh" "$TARGET_HOME/.gnupg" 2>/dev/null || true
   chmod 700 "$TARGET_HOME/.ssh" "$TARGET_HOME/.gnupg" 2>/dev/null || true
@@ -193,14 +192,14 @@ SHELL_FILE="$BACKUP_ROOT/data/default_shell.txt"
 if [ -f "$SHELL_FILE" ]; then
   TARGET_SHELL=$(cat "$SHELL_FILE" | tr -d '[:space:]')
 
-  if [ -x "$TARGET_SHELL" ]; then
+  if [ -n "$TARGET_SHELL" ] && [ -x "$TARGET_SHELL" ]; then
     if ! grep -Fxq "$TARGET_SHELL" /etc/shells; then
       echo "$TARGET_SHELL" >>/etc/shells
     fi
     chsh -s "$TARGET_SHELL" "$TARGET_USER"
     echo "  -> Default shell successfully changed to $TARGET_SHELL."
   else
-    echo "  -> Warning: Executable $TARGET_SHELL not found."
+    echo "  -> Warning: Executable target shell not found or invalid."
   fi
 fi
 

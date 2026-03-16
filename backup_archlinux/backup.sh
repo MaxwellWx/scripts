@@ -20,6 +20,7 @@ pacman -Qqen >"$PKG_LIST_DIR/pkglist-pacman.txt"
 
 echo "[2/7] Backup pkgs from AUR..."
 pacman -Qqem >"$PKG_LIST_DIR/pkglist-aur.txt"
+
 if grep -q "^topiary$" "$PKG_LIST_DIR/pkglist-aur.txt"; then
   sed -i 's/^topiary$/topiary-bin/' "$PKG_LIST_DIR/pkglist-aur.txt"
   echo "  -> Replaced 'topiary' with 'topiary-bin' to avoid slow compilation."
@@ -33,8 +34,8 @@ SENSITIVE_DIRS=()
 if [ ${#SENSITIVE_DIRS[@]} -gt 0 ]; then
   tar -czf "$DATA_DIR/secure_data.tar.gz" -C "$HOME" "${SENSITIVE_DIRS[@]}"
 
-  gpg --pinentry-mode loopback --symmetric --cipher-algo AES256 --output "$DATA_DIR/secure_data.tar.gz.gpg" "$DATA_DIR/secure_data.tar.gz"
-  rm "$DATA_DIR/secure_data.tar.gz"
+  gpg --yes --pinentry-mode loopback --symmetric --cipher-algo AES256 --output "$DATA_DIR/secure_data.tar.gz.gpg" "$DATA_DIR/secure_data.tar.gz"
+  rm -f "$DATA_DIR/secure_data.tar.gz"
   echo "  -> Credentials archived to $DATA_DIR/secure_data.tar.gz.gpg"
 else
   echo "  -> No credentials found to archive."
