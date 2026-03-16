@@ -116,8 +116,18 @@ EOF
 
 echo "[7/8] Install pkgs from AUR..."
 if [ -f "$PKG_LIST_DIR/pkglist-aur.txt" ]; then
-  # Execute yay in user context
-  su - "$TARGET_USER" -c "yay -S --needed --noconfirm - < \"$PKG_LIST_DIR/pkglist-aur.txt\""
+  AUR_PKGS=$(grep -v '^#' "$PKG_LIST_DIR/pkglist-aur.txt" | tr '\n' ' ' | xargs)
+
+  if [ -n "$AUR_PKGS" ]; then
+    sudo -u "$TARGET_USER" bash -c "
+      export http_proxy=\"http://127.0.0.1:7890\"
+      export https_proxy=\"http://127.0.0.1:7890\"
+      export all_proxy=\"socks5://127.0.0.1:7890\"
+      yay -S --needed --noconfirm $AUR_PKGS
+    "
+  else
+    echo "  -> Notice: AUR package list is empty."
+  fi
 else
   echo "  -> Error: pkglist-aur.txt not found."
 fi
