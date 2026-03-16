@@ -16,8 +16,6 @@ fi
 
 echo "=== Arch Linux WSL Restore Pipeline ==="
 
-# --- 动态路径解析机制 ---
-# 无论脚本被放置在何处，通过探测 data 目录准确定位 BACKUP_ROOT
 SCRIPT_DIR=$(dirname "$(realpath "$0")")
 if [ -d "$SCRIPT_DIR/data" ]; then
   BACKUP_ROOT="$SCRIPT_DIR"
@@ -135,9 +133,13 @@ fi
 echo "[8/8] Clone and stow dotfiles..."
 su - "$TARGET_USER" <<EOF
 set -e
+
+export http_proxy="http://127.0.0.1:7890"
+export https_proxy="http://127.0.0.1:7890"
+export all_proxy="socks5://127.0.0.1:7890"
+
 if [ ! -d "$TARGET_HOME/dot_files" ]; then
-  echo "  -> Cloning dot_files repository..."
-  # Uses SSH cloning since credentials were restored in step 4
+  echo "  -> Cloning dot_files repository via HTTPS..."
   git clone "$DOTFILES_REPO" "$TARGET_HOME/dot_files"
 else
   echo "  -> dot_files already exists. Skipping clone."
@@ -151,7 +153,3 @@ for target_dir in */; do
   stow -t "$TARGET_HOME" "\$dir_name"
 done
 EOF
-
-echo "=== Restore Accomplished ==="
-echo "Action Required: Please execute 'wsl --shutdown' in Windows PowerShell."
-echo "Upon next launch, you will automatically enter the environment as user '$TARGET_USER'."
