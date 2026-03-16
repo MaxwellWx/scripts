@@ -15,13 +15,13 @@ mkdir -p "$PKG_LIST_DIR" "$DATA_DIR"
 
 echo "=== Arch Linux WSL Backup Pipeline ==="
 
-echo "[1/4] Backup pkgs from pacman..."
+echo "[1/5] Backup pkgs from pacman..."
 pacman -Qqen >"$PKG_LIST_DIR/pkglist-pacman.txt"
 
-echo "[2/4] Backup pkgs from AUR..."
+echo "[2/5] Backup pkgs from AUR..."
 pacman -Qqem >"$PKG_LIST_DIR/pkglist-aur.txt"
 
-echo "[3/4] Archive sensitive credentials (.ssh, .gnupg)..."
+echo "[3/5] Archive sensitive credentials (.ssh, .gnupg)..."
 SENSITIVE_DIRS=()
 [ -d "$HOME/.ssh" ] && SENSITIVE_DIRS+=(".ssh")
 
@@ -35,7 +35,11 @@ else
   echo "  -> No credentials found to archive."
 fi
 
-echo "[4/4] Check git status of core directories..."
+echo "[4/5] Archive system configuration files..."
+tar -czf "$DATA_DIR/sys_config.tar.gz" -C / etc/pacman.conf etc/pacman.d/mirrorlist etc/makepkg.conf 2>/dev/null || true
+echo "  -> System configs archived to $DATA_DIR/sys_config.tar.gz"
+
+echo "[5/5] Check git status of core directories..."
 CHECK_DIRS=(
   "$DOTFILES_DIR"
   "$SCRIPTS_DIR"
