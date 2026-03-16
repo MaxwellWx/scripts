@@ -1,75 +1,119 @@
 #!/bin/bash
 
-DOTFILES_DIR="$HOME/dotfiles"
-SCRIPTS_DIR="$HOME/scripts"
-PKG_LIST_DIR="$SCRIPTS_DIR/backup_archlinux/pkg-lists"
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# Core configurations
+TARGET_USER="xuanwu"
+TARGET_HOME="/home/$TARGET_USER"
 DOTFILES_REPO="git@github.com:MaxwellWx/dot_files.git"
 
-set -e # stop once encountering error
-
-echo "[0/6] check keyring and basic pkgs"
-sudo pacman -Sy --noconfirm archlinux-keyring
-sudo pacman -Su --noconfirm
-sudo pacman -S --needed --noconfirm git base-devel stow
-
-echo "[1/6] check dot_files"
-if [ ! -d "$DOTFILES_DIR" ]; then
-  echo "dot_files dir does not exist,cloning"
-  git clone "$DOTFILES_REPO" "$DOTFILES_DIR"
-else
-  echo "dot_files dir exist,skipping"
+# 1. Intercept check: Must be executed as root
+if [ "$EUID" -ne 0 ]; then
+  echo "Error: This restore pipeline MUST be executed as root."
+  exit 1
 fi
 
-echo "[2/6] check yay"
+echo "=== Arch Linux WSL Restore Pipeline ==="
+
+echo "[1/8] Initialize keyring and basic pkgs..."
+pacman-key --init
+pacman-key --populate archlinux
+pacman -Sy --noconfirm archlinux-keyring
+pacman -Su --noconfirm
+pacman -S --needed --noconfirm base-devel git stow sudo wget tar
+
+echo "[2/8] Setup target user ($TARGET_USER) and privileges..."
+if ! id "$TARGET_USER" &>/dev/null; then
+  useradd -m -G wheel -s /bin/bash "$TARGET_USER"
+  # Configure passwordless sudo for the wheel group
+  echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >/etc/sudoers.d/wheel_nopasswd
+fi
+
+# Write WSL config to set default user for next boot
+cat <<EOF >/etc/wsl.conf
+[user]
+default=$TARGET_USER
+EOF
+
+echo "[3/8] Migrate restore scripts and data..."
+# Detect current script location to migrate data into the target user's home
+SCRIPT_DIR=$(dirname "$(realpath "$0")")
+if [[ "$SCRIPT_DIR" != "$TARGET_HOME"* ]]; then
+  echo "  -> Migrating repository to $TARGET_HOME..."
+  cp -r "$SCRIPT_DIR" "$TARGET_HOME/"
+  chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/$(basename "$SCRIPT_DIR")"
+  BACKUP_ROOT="$TARGET_HOME/$(basename "$SCRIPT_DIR")/backup_archlinux"
+else
+  BACKUP_ROOT="$SCRIPT_DIR/backup_archlinux"
+fi
+
+echo "[4/8] Restore sensitive credentials (SSH & GPG)..."
+if [ -f "$BACKUP_ROOT/data/secure_data.tar.gz" ]; then
+  tar -xzf "$BACKUP_ROOT/data/secure_data.tar.gz" -C "$TARGET_HOME/"
+
+  # Strictly enforce ownership and secure permissions
+  chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.ssh" "$TARGET_HOME/.gnupg" 2>/dev/null || true
+  chmod 700 "$TARGET_HOME/.ssh" "$TARGET_HOME/.gnupg" 2>/dev/null || true
+  find "$TARGET_HOME/.ssh" -type f -exec chmod 600 {} \; 2>/dev/null || true
+  find "$TARGET_HOME/.ssh" -type f -name "*.pub" -exec chmod 644 {} \; 2>/dev/null || true
+  echo "  -> Credentials restored and secured."
+else
+  echo "  -> No secure data archive found. Skipping."
+fi
+
+echo "[5/8] Install pkgs from pacman..."
+PKG_LIST_DIR="$BACKUP_ROOT/pkg-lists"
+if [ -f "$PKG_LIST_DIR/pkglist-pacman.txt" ]; then
+  pacman -S --needed --noconfirm - <"$PKG_LIST_DIR/pkglist-pacman.txt"
+else
+  echo "  -> Error: pkglist-pacman.txt not found."
+fi
+
+echo "[6/8] Deploy AUR helper (yay)..."
+# Switch to user context to securely compile yay
+su - "$TARGET_USER" <<'EOF'
+set -e
 if ! command -v yay &>/dev/null; then
-  echo "installing yay"
+  echo "  -> Installing yay..."
   cd /tmp
   git clone https://aur.archlinux.org/yay.git
   cd yay
   makepkg -si --noconfirm
-  cd ~
   rm -rf /tmp/yay
 else
-  echo "yay installed"
+  echo "  -> yay is already installed."
 fi
+EOF
 
-echo "[3/6] installing pkgs from pacman"
-if [ -f "$PKG_LIST_DIR/pkglist-pacman.txt" ]; then
-  sudo pacman -S --needed --noconfirm - <"$PKG_LIST_DIR/pkglist-pacman.txt"
-else
-  echo "error: pkglist_pacman.txt not found"
-fi
-
-echo "[4/6] installing pkgs from AUR"
+echo "[7/8] Install pkgs from AUR..."
 if [ -f "$PKG_LIST_DIR/pkglist-aur.txt" ]; then
-  yay -S --needed --noconfirm - <"$PKG_LIST_DIR/pkglist-aur.txt"
+  # Execute yay in user context
+  su - "$TARGET_USER" -c "yay -S --needed --noconfirm - < \"$PKG_LIST_DIR/pkglist-aur.txt\""
 else
-  echo "error: pkglist_aur.txt not found"
+  echo "  -> Error: pkglist-aur.txt not found."
 fi
 
-echo "[5/6] stow config"
-cd "$DOTFILES_DIR" || exit
-for file in *; do
-  [[ -d "$file" ]] || continue
-  [[ "$file" == "pkg-lists" ]] && continue
-  [[ "$file" == ".git" ]] && continue
+echo "[8/8] Clone and stow dotfiles..."
+su - "$TARGET_USER" <<EOF
+set -e
+if [ ! -d "$TARGET_HOME/dot_files" ]; then
+  echo "  -> Cloning dot_files repository..."
+  # Uses SSH cloning since credentials were restored in step 4
+  git clone "$DOTFILES_REPO" "$TARGET_HOME/dot_files"
+else
+  echo "  -> dot_files already exists. Skipping clone."
+fi
 
-  echo "stowing: $file"
-  if ! stow "$file" 2>/dev/null; then
-    echo "$file conflicting,back up old conifg"
-    stow -R "$file"
-  fi
+echo "  -> Executing stow configuration..."
+cd "$TARGET_HOME/dot_files" || exit
+for target_dir in */; do
+  dir_name="\${target_dir%/}"
+  [[ "\$dir_name" == ".git" ]] && continue
+  stow -t "$TARGET_HOME" "\$dir_name"
 done
-stow --restow */
+EOF
 
-echo "[6/6] config default shell"
-if command -v nu &>/dev/null; then
-  CURRENT_SHELL=$(basename "$SHELL")
-  if [ "$CURRENT_SHELL" != "nu" ]; then
-    chsh -s "$(which nu)"
-  fi
-else
-  echo "warning: nushell uninstalled,skipping"
-fi
-
-echo "restoring accomplished"
+echo "=== Restore Accomplished ==="
+echo "Action Required: Please execute 'wsl --shutdown' in Windows PowerShell."
+echo "Upon next launch, you will automatically enter the environment as user '$TARGET_USER'."

@@ -6,6 +6,8 @@
 
 .*
 
+Code_Program/asr_mt_containers/faster_whisper
+Code_Program/asr_mt_containers/meta_NLLB
 
 Code_Program/fatido/FaTiDo/
 Code_Program/fatido/fatido_env

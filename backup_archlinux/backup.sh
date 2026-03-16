@@ -1,27 +1,57 @@
 #!/bin/bash
 
+# Exit immediately if a command exits with a non-zero status
+set -e
+
+# Define core directories
 DOTFILES_DIR="$HOME/dot_files"
 SCRIPTS_DIR="$HOME/scripts"
-BACKUP_DIR="$SCRIPTS_DIR/backup_archlinux/pkg-lists"
-mkdir -p "$BACKUP_DIR"
+BACKUP_ROOT="$SCRIPTS_DIR/backup_archlinux"
+PKG_LIST_DIR="$BACKUP_ROOT/pkg-lists"
+DATA_DIR="$BACKUP_ROOT/data"
 
-echo "[1/3] backup pkgs from pacman"
-pacman -Qqen >"$BACKUP_DIR/pkglist-pacman.txt"
+# Ensure backup directories exist
+mkdir -p "$PKG_LIST_DIR" "$DATA_DIR"
 
-echo "[2/3] backup pkgs from AUR"
-pacman -Qqem >"$BACKUP_DIR/pkglist-aur.txt"
+echo "=== Arch Linux WSL Backup Pipeline ==="
 
-echo "[3/3] check git status of dot_files"
-if [ -d "$DOTFILES_DIR/.git" ]; then
-  cd "$DOTFILES_DIR" || exit
-  if [[ -n $(git status -s) ]]; then
-    echo "warning: not-submitted changes in $DOTFILES_DIR"
-    git status -s
-  else
-    echo ""
-  fi
+echo "[1/4] Backup pkgs from pacman..."
+pacman -Qqen >"$PKG_LIST_DIR/pkglist-pacman.txt"
+
+echo "[2/4] Backup pkgs from AUR..."
+pacman -Qqem >"$PKG_LIST_DIR/pkglist-aur.txt"
+
+echo "[3/4] Archive sensitive credentials (.ssh, .gnupg)..."
+SENSITIVE_DIRS=()
+[ -d "$HOME/.ssh" ] && SENSITIVE_DIRS+=(".ssh")
+
+if [ ${#SENSITIVE_DIRS[@]} -gt 0 ]; then
+  # Use -C to change to $HOME before archiving to prevent absolute path nesting
+  tar -czf "$DATA_DIR/secure_data.tar.gz" -C "$HOME" "${SENSITIVE_DIRS[@]}"
+  echo "  -> Credentials archived to $DATA_DIR/secure_data.tar.gz"
+  echo "  -> WARNING: Ensure your backup repository is set to PRIVATE."
 else
-  echo "warning: $DOTFILES_DIR is not a git repository"
+  echo "  -> No credentials found to archive."
 fi
 
-echo "backup accomplished"
+echo "[4/4] Check git status of core directories..."
+CHECK_DIRS=(
+  "$DOTFILES_DIR"
+  "$SCRIPTS_DIR"
+  "$HOME/Code_Program"
+  "$HOME/singularity_def_files"
+)
+
+for dir in "${CHECK_DIRS[@]}"; do
+  if [ -d "$dir/.git" ]; then
+    cd "$dir" || exit
+    if [[ -n $(git status -s) ]]; then
+      echo "  [Warning] Uncommitted changes detected in $dir"
+      git status -s | sed 's/^/    /'
+    fi
+  elif [ -d "$dir" ]; then
+    echo "  [Notice] $dir is not a git repository. It will not be synced."
+  fi
+done
+
+echo "=== Backup Accomplished ==="
