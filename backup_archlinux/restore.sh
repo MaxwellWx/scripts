@@ -105,7 +105,7 @@ else
 fi
 
 echo "[7/10] Deploy AUR helper (yay)..."
-su - "$TARGET_USER" <<EOF
+su -s /bin/bash "$TARGET_USER" <<EOF
 set -e
 export http_proxy="$PROXY_URL"
 export https_proxy="$PROXY_URL"
@@ -142,7 +142,7 @@ else
 fi
 
 echo "[9/10] Clone and stow dotfiles..."
-su - "$TARGET_USER" <<EOF
+su -s /bin/bash "$TARGET_USER" <<EOF
 set -e
 export http_proxy="$PROXY_URL"
 export https_proxy="$PROXY_URL"
