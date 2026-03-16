@@ -1,4 +1,5 @@
 apptainer
+aria2
 autoconf
 automake
 base
@@ -7,6 +8,7 @@ clang
 davfs2
 fastfetch
 fd
+ffmpeg
 fuse2
 fuse2fs
 gcc
@@ -17,6 +19,7 @@ luarocks
 make
 markdownlint-cli
 neovim
+noto-fonts-cjk
 noto-fonts-emoji
 nushell
 openssh
@@ -24,6 +27,7 @@ python-black
 python-pip
 python-pylint
 rclone
+reflector
 ripgrep
 rsync
 shfmt
@@ -33,4 +37,6 @@ tree
 ttf-jetbrains-mono-nerd
 unzip
 wget
+wqy-microhei
+wqy-zenhei
 xclip
