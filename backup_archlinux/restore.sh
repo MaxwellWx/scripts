@@ -7,6 +7,7 @@ set -e
 TARGET_USER="xuanwu"
 TARGET_HOME="/home/$TARGET_USER"
 DOTFILES_REPO="https://github.com/MaxwellWx/dot_files.git"
+SCRIPTS_REPO="https://github.com/MaxwellWx/scripts.git"
 
 # Proxy configurations (Centralized)
 PROXY_URL="http://127.0.0.1:7890"
@@ -165,6 +166,14 @@ for target_dir in */; do
   fi
   stow --restow -t "$TARGET_HOME" "\$dir_name"
 done
+
+if [ ! -d "$TARGET_HOME/scripts" ]; then
+  echo "  -> Cloning scripts repository..."
+  git clone "$SCRIPTS_REPO" "$TARGET_HOME/scripts"
+else
+  echo "  -> scripts exists. Pulling latest changes..."
+  cd "$TARGET_HOME/scripts" && git pull origin main || true
+fi
 EOF
 
 echo "[-] Restore Windows WezTerm configuration..."
