@@ -160,7 +160,9 @@ echo "  -> Executing stow configuration..."
 cd "$TARGET_HOME/dot_files" || exit
 for target_dir in */; do
   dir_name="\${target_dir%/}"
-  [[ "\$dir_name" == ".git" ]] && continue
+  if [[ "$dir_name" =~ ^(\.git|windows_configs)$ ]]; then
+    continue
+  fi
   stow --restow -t "$TARGET_HOME" "\$dir_name"
 done
 EOF
@@ -175,10 +177,12 @@ if [ -n "$WIN_PROFILE_CMD" ]; then
   WEZTERM_WIN_DIR="$WIN_CONFIG_PARENT/wezterm"
 
   if [ -d "$WEZTERM_DOTFILES_DIR" ]; then
-    mkdir -p "$WIN_CONFIG_PARENT"
-    rm -rf "$WEZTERM_WIN_DIR" 2>/dev/null || true
-    cp -r "$WEZTERM_DOTFILES_DIR" "$WEZTERM_WIN_DIR"
-    echo "  -> Restored WezTerm config to Windows at $WEZTERM_WIN_DIR."
+    sudo -u "$TARGET_USER" bash -c "
+      mkdir -p '$WIN_CONFIG_PARENT'
+      rm -rf '$WEZTERM_WIN_DIR' 2>/dev/null || true
+      cp -r '$WEZTERM_DOTFILES_DIR' '$WEZTERM_WIN_DIR'
+    "
+    echo "  -> Restored WezTerm config to Windows at $WEZTERM_WIN_DIR as $TARGET_USER."
   else
     echo "  -> Notice: No WezTerm config found in dot_files. Skipping."
   fi

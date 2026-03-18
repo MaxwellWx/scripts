@@ -16,10 +16,10 @@ mkdir -p "$PKG_LIST_DIR" "$DATA_DIR"
 echo "=== Arch Linux WSL Backup Pipeline ==="
 
 echo "[1/7] Backup pkgs from pacman..."
-pacman -Qqen >"$PKG_LIST_DIR/pkglist-pacman.txt"
+pacman -Qqen >"$PKG_LIST_DIR/pkglist-pacman.txt" || true
 
 echo "[2/7] Backup pkgs from AUR..."
-pacman -Qqem >"$PKG_LIST_DIR/pkglist-aur.txt"
+pacman -Qqem >"$PKG_LIST_DIR/pkglist-aur.txt" || true
 
 if grep -q "^topiary$" "$PKG_LIST_DIR/pkglist-aur.txt"; then
   sed -i 's/^topiary$/topiary-bin/' "$PKG_LIST_DIR/pkglist-aur.txt"
