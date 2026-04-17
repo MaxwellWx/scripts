@@ -19,6 +19,7 @@ def main [
     "warpx_1d" => "WarpX"
     "warpx_2d" => "WarpX"
     "warpx_3d" => "WarpX"
+    "warpx_rz" => "WarpX"
     _ => {
       # Exit gracefully if an unknown program is passed
       error make {msg: $"Unknown program: ($program)"}
