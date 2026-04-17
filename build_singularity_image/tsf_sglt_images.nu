@@ -44,19 +44,28 @@ def main [
   # -------------------------------------------------------------------------
 
   match $eshell {
-    "hf" => {
-      print $"Transferring image to HF cluster..."
+    "hf_home" => {
+      print $"Transferring image to HF home..."
       scp $image_name $"hfcluster:~/.local/bin/($image_name)"
+    }
+    "hf_share" => {
+      print $"Transferring image to HF share..."
       scp $image_name $"hfcluster:/public/share/ac58qn21ek/singularity_images/($image_name)"
     }
-    "ty" => {
-      print $"Transferring image to TY cluster..."
+    "ty_home" => {
+      print $"Transferring image to TY home..."
       scp $image_name $"tycluster:~/.local/bin/($image_name)"
+    }
+    "ty_share" => {
+      print $"Transferring image to TY share..."
       scp $image_name $"tycluster:/work/share/ac58qn21ek/singularity_images/($image_name)"
     }
-    "wz" => {
-      print $"Transferring image to WZ cluster..."
+    "wz_home" => {
+      print $"Transferring image to WZ home..."
       scp $image_name $"wzcluster:~/.local/bin/($image_name)"
+    }
+    "wz_share" => {
+      print $"Transferring image to WZ share..."
       scp $image_name $"wzcluster:/work/share/ac58qn21ek/singularity_images/($image_name)"
     }
     "local" => {
