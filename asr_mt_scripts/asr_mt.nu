@@ -1,96 +1,72 @@
 #!/usr/bin/env nu
 
-# =============================================================================
-# Sub-Pipeline: A 3-Stage Automated Video Subtitling Workflow
-# Pipeline: Transcribe (Whisper) -> Translate (NLLB) -> Burn (FFmpeg)
-# ==============================================================================
-def main [
-  filename: path # [Required] Input video file path
+# Main entry point containing all logic
+def main [] {
+  let warpx_configs = [
+    {name: "warpx_1d" path: "~/warpx_1d" clusters: ["hf" "ty" "wz"]}
+    # { name: "warpx_2d", path: "~/warpx_2d", clusters: ["hf", "ty"] }
+  ]
 
-  # --- Stage 1: ASR (Whisper) Parameters ---
-  --model (-m): string = "large-v3" # Whisper model size (tiny, base, small, medium, large-v3)
-  --precision (-p): string = "float16" # Compute precision (float16, int8)
-  --lang (-l): string # Spoken language code (e.g., zh, en, ja). Auto-detect if omitted.
-  --beam-size: int = 5 # Beam search size. Higher is more accurate but slower (default: 5)
-  --vad # Enable VAD filter to remove long silences and prevent hallucination
+  let root_dir = $env.PWD
+  let max_retries = 3
 
-  # --- Stage 2: MT (NLLB Translation) Parameters ---
-  --translate (-t) # Switch: Enable Stage 2 (Translation)
-  --src-lang: string = "eng_Latn" # NLLB Source language code (e.g., eng_Latn, zho_Hans, jpn_Jpan)
-  --tgt-lang: string = "zho_Hans" # NLLB Target language code (e.g., eng_Latn, zho_Hans, jpn_Jpan)
+  for config in $warpx_configs {
+    cd $root_dir
 
-  # --- Stage 3: Render (FFmpeg) Parameters ---
-  --burn (-b) # Switch: Enable Stage 3 (Burn subtitles into video)
-  --encoder (-e): string = "libx264" # Video encoder to use for burning (default: libx264)
-] {
-  # --- Environment Configuration ---
-  let script_dir = "~/scripts/asr_mt_scripts" | path expand
-  let image_dir = "~/Code_Program/asr_mt_containers" | path expand
-  let asr_image_path = ($image_dir | path join "faster_whisper")
-  let mt_image_path = ($image_dir | path join "meta_NLLB")
+    print $"\n(ansi blue)=== Processing ($config.name) ===(ansi reset)"
 
-  # --- File Validation & Path Parsing ---
-  if not ($filename | path exists) { error make {msg: $"Error: File '($filename)' not found."} }
-  let abs_file = ($filename | path expand)
-  let data_dir = ($abs_file | path dirname)
-  let file_name = ($abs_file | path basename)
-  let file_base = ($abs_file | path parse | get stem)
-  let file_ext = ($abs_file | path parse | get extension)
+    let expanded_path = ($config.path | path expand)
 
-  # ==========================================
-  # Stage 1: Generate Subtitles (Whisper)
-  # ==========================================
-  print $"\n[Stage 1/3] Transcribing: ($file_name)"
-  let orig_srt_filename = $"($file_base).srt"
-
-  mut asr_args = ["/app/transcribe.py" $"/data/($file_name)" "--model" $model "--precision" $precision]
-  if ($lang != null) { $asr_args = ($asr_args | append ["--language" $lang]) }
-  if $vad { $asr_args = ($asr_args | append ["--vad"]) }
-
-  # Execute Whisper
-  let asr_out = (
-    singularity exec --nv --bind /usr/lib/wsl --bind $"($script_dir):/app" --bind $"($data_dir):/data" --env LD_LIBRARY_PATH=/usr/lib/wsl/lib
-    $asr_image_path python3 ...$asr_args
-  )
-
-  # ==========================================
-  # Stage 2: Translate Subtitles (NLLB)
-  # ==========================================
-  mut final_srt_filename = $orig_srt_filename
-
-  if $translate {
-    print $"\n[Stage 2/3] Translating from ($src_lang) to ($tgt_lang)..."
-    let trans_srt_filename = $"($file_base)_($tgt_lang).srt"
-    $final_srt_filename = $trans_srt_filename # Update pointer to the translated file
-
-    let mt_args = ["/app/translate.py" $"/data/($orig_srt_filename)" $"/data/($trans_srt_filename)" "--src" $src_lang "--tgt" $tgt_lang]
-
-    # Execute NLLB
-    let mt_out = (
-      singularity exec --nv --bind /usr/lib/wsl --bind $"($script_dir):/app" --bind $"($data_dir):/data" --env LD_LIBRARY_PATH=/usr/lib/wsl/lib
-      --env HF_HOME=/opt/huggingface --env TRANSFORMERS_OFFLINE=1
-      $mt_image_path python3 ...$mt_args
-    )
-    print "Translation complete."
-  } else {
-    print "\n[Stage 2/3] Translation skipped."
-  }
-
-  # ==========================================
-  # Stage 3: Burn Subtitles (FFmpeg)
-  # ==========================================
-  if $burn {
-    print $"\n[Stage 3/3] Burning [($final_srt_filename)] into video..."
-    let output_video = $"($file_base)_subbed.($file_ext)"
-
-    try {
-      cd $data_dir
-      ffmpeg -y -v warning -stats -i $file_name -vf $"subtitles='($final_srt_filename)'" -c:v $encoder -c:a copy $output_video
-      print $"\nSUCCESS: Video saved to ($data_dir)/($output_video)"
-    } catch {
-      print "Error: FFmpeg execution failed."
+    if not ($expanded_path | path exists) {
+      print $"(ansi red)Path ($expanded_path) does not exist. Skipping...(ansi reset)"
+      continue
     }
-  } else {
-    print "\n[Stage 3/3] Video burning skipped. Pipeline finished."
+
+    cd $expanded_path
+
+    print "Pulling latest repository changes..."
+
+    git pull
+
+    if $env.LAST_EXIT_CODE != 0 {
+      print $"(ansi yellow)Warning: Git pull failed (Exit code: ($env.LAST_EXIT_CODE)). Proceeding with local version.(ansi reset)"
+    }
+
+    print $"Building singularity images for ($config.name)..."
+
+    bd_sglt_images $config.name
+
+    if $env.LAST_EXIT_CODE != 0 {
+      print $"(ansi red)Build failed for ($config.name). Skipping transfers.(ansi reset)"
+      continue
+    }
+
+    print $"(ansi green)Build completed successfully.(ansi reset)"
+
+    # Inline transfer and retry logic
+    let retry_range = 1..$max_retries
+
+    for attempt in $retry_range {
+      # 3. 降低字符串插值中的括号嵌套复杂度，使用 [] 替代文本 ()
+      print $"transferring ($config.name) to ($cluster)... [attempt ($attempt)/($max_retries)]"
+
+      # 2. 移除 do 闭包和管道外层的冗余 ()
+      let result = do { tsf_sglt_images $config.name $cluster } | complete
+
+      if $result.exit_code == 0 {
+        print $"(ansi green)successfully transferred ($config.name) to ($cluster).(ansi reset)"
+        $success = true
+        break
+      }
+
+      print $"(ansi yellow)attempt ($attempt) failed with exit code ($result.exit_code).(ansi reset)"
+
+      if $attempt < $max_retries {
+        sleep 3sec
+      }
+    }
   }
+
+  cd $root_dir
+  print $"\n(ansi green)All operations completed.(ansi reset)"
 }

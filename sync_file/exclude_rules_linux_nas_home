@@ -41,6 +41,10 @@ Code_Program/warpx_3d/WarpX/
 Code_Program/warpx_3d/warpx_3d
 Code_Program/warpx_3d/warpx_3d_env
 
+Code_Program/warpx_rz/WarpX/
+Code_Program/warpx_rz/warpx_rz
+Code_Program/warpx_rz/warpx_rz_env
+
 Code_Program/test/
 
 Code_Program/yay/
