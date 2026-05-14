@@ -1,17 +1,43 @@
 #!/usr/bin/env nu
 
 # Main entry point for the automation script
-def main [] {
+# Accepts optional targets to specify which dimension to update.
+# e.g., `./updatewarpx.nu` (updates all)
+# e.g., `./updatewarpx.nu 1` (updates 1d only)
+# e.g., `./updatewarpx.nu 2 3 rz` (updates 2d, 3d, and rz)
+def main [...targets: string] {
   alias bd_sglt_images = nu ~/scripts/build_singularity_image/bd_sglt_images.nu
   alias tsf_sglt_images = nu ~/scripts/build_singularity_image/tsf_sglt_images.nu
 
-  # Define configurations for target repositories and clusters
-  let warpx_configs = [
-    {name: "warpx_1d" path: "~/Code_Program/warpx_1d/WarpX" clusters: ["hf_home" "hf_share" "ty_home" "ty_share" "wz_home" "wz_share"]}
-    {name: "warpx_2d" path: "~/Code_Program/warpx_2d/WarpX" clusters: ["hf_home" "hf_share" "ty_home" "ty_share" "wz_home" "wz_share"]}
-    {name: "warpx_3d" path: "~/Code_Program/warpx_3d/WarpX" clusters: ["hf_home" "hf_share" "ty_home" "ty_share" "wz_home" "wz_share"]}
-    {name: "warpx_rz" path: "~/Code_Program/warpx_rz/WarpX" clusters: ["hf_home" "hf_share" "ty_home" "ty_share" "wz_home" "wz_share"]}
+  # Define all available configurations for target repositories and clusters
+  let all_configs = [
+    {name: "warpx" path: "~/Code_Program/warpx/WarpX" clusters: ["hf_home" "hf_share" "ty_home" "ty_share" "wz_home" "wz_share"]}
   ]
+
+  # Map user inputs to canonical configuration names
+  let mapped_targets = if ($targets | is-empty) {
+    # If no parameters are given, default to all configurations
+    $all_configs | get name
+  } else {
+    $targets | each {|t|
+      match $t {
+        "1" => "warpx_1d"
+        "2" => "warpx_2d"
+        "3" => "warpx_3d"
+        "rz" => "warpx_rz"
+        _ => $t # Fallback to support exact name matching if provided
+      }
+    }
+  }
+
+  # Filter the configurations based on the mapped target names
+  let warpx_configs = $all_configs | where {|c| $c.name in $mapped_targets }
+
+  # Exit early if arguments are invalid
+  if ($warpx_configs | is-empty) {
+    print $"(ansi red)Error: No valid targets specified. Valid options are: 1, 2, 3, rz.(ansi reset)"
+    return
+  }
 
   # Record starting directory to reset path on each iteration
   let root_dir = $env.PWD
@@ -55,6 +81,7 @@ def main [] {
     # Iterate through target clusters and transfer with inline retry logic
     for cluster in $config.clusters {
       mut success = false
+
       let retry_range = 1..$max_retries
 
       for attempt in $retry_range {

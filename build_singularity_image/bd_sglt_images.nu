@@ -15,10 +15,7 @@ def main [
     "smilei_fatido_no_rad_push" => "Smilei_FaTiDo_no_rad_push"
     "smilei_spin" => "Smilei_Spin"
     "fatido" => "FaTiDo"
-    "warpx_1d" => "WarpX"
-    "warpx_2d" => "WarpX"
-    "warpx_3d" => "WarpX"
-    "warpx_rz" => "WarpX"
+    "warpx" => "WarpX"
     _ => {
       # Exit gracefully if an unknown program is passed
       error make {msg: $"Unknown program: ($program)"}
