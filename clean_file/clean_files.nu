@@ -35,7 +35,7 @@ def main [] {
 
   let answer = (input "Delete these files and remove empty directories? [y/N] ")
 
-  if ($answer | str downcase) != "y" {
+  if ($answer | str lowercase) != "y" {
     print "Operation cancelled by user."
     return
   }
