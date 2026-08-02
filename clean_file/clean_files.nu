@@ -16,6 +16,8 @@ def main [] {
     | where {|row| not ($row.name | str ends-with ".py") }
     # Protect .sh files
     | where {|row| not ($row.name | str ends-with ".sh") }
+    # Protect .tex files
+    | where {|row| not ($row.name | str ends-with ".tex") }
     # Protect this script itself
     | where {|row| ($row.name | path basename) != ($current_script | path basename) }
   )
