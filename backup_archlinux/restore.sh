@@ -465,14 +465,12 @@ as_target stow \
   --dir="$TARGET_HOME/dot_files" \
   --target="$TARGET_HOME" \
   --simulate \
-  --restow \
-  -- "${STOW_PACKAGES[@]}"
+  --restow "${STOW_PACKAGES[@]}"
 
 as_target stow \
   --dir="$TARGET_HOME/dot_files" \
   --target="$TARGET_HOME" \
-  --restow \
-  -- "${STOW_PACKAGES[@]}"
+  --restow "${STOW_PACKAGES[@]}"
 
 echo "[-] Restore Windows WezTerm configuration..."
 

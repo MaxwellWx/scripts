@@ -13,14 +13,14 @@ source "$SCRIPT_DIR/config.sh"
 APPLY=0
 
 case "${1:-}" in
-  "")
-    ;;
-  --apply)
-    APPLY=1
-    ;;
-  *)
-    die "Usage: $0 [--apply]"
-    ;;
+"")
+  ;;
+--apply)
+  APPLY=1
+  ;;
+*)
+  die "Usage: $0 [--apply]"
+  ;;
 esac
 
 [[ $# -le 1 ]] ||
@@ -114,8 +114,7 @@ if ! stow \
   --dir="$DOTFILES_DIR" \
   --target="$HOME" \
   --simulate \
-  --restow \
-  -- "${STOW_PACKAGES[@]}"; then
+  --restow "${STOW_PACKAGES[@]}"; then
 
   printf 'Stow conflicts detected. Returning tracked files to the previous commit.\n' >&2
 
@@ -128,7 +127,6 @@ fi
 stow \
   --dir="$DOTFILES_DIR" \
   --target="$HOME" \
-  --restow \
-  -- "${STOW_PACKAGES[@]}"
+  --restow "${STOW_PACKAGES[@]}"
 
 printf 'Configuration synchronization completed.\n'
