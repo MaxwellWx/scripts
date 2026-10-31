@@ -13,8 +13,9 @@ DOTFILES_REPO="${DOTFILES_REPO:-https://github.com/MaxwellWx/dot_files.git}"
 SCRIPTS_REPO="${SCRIPTS_REPO:-https://github.com/MaxwellWx/scripts.git}"
 AUR_HELPER_REPO="${AUR_HELPER_REPO:-https://aur.archlinux.org/yay-bin.git}"
 
-PROXY_URL="${PROXY_URL:-}"
-SOCKS_URL="${SOCKS_URL:-}"
+# Explicit configuration takes precedence over inherited proxy settings.
+PROXY_URL="${PROXY_URL:-${https_proxy:-${HTTPS_PROXY:-${http_proxy:-${HTTP_PROXY:-}}}}}"
+SOCKS_URL="${SOCKS_URL:-${all_proxy:-${ALL_PROXY:-}}}"
 REVIEW_PARENT="${REVIEW_PARENT:-/var/lib/backlinux/system-config-review}"
 # Keep $repo and $arch literal for pacman.
 PACMAN_MIRROR_URL="${PACMAN_MIRROR_URL:-}"
