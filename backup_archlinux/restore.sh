@@ -313,6 +313,23 @@ ensure_repository() {
 ensure_repository "$DOTFILES_REPO" "$TARGET_HOME/dot_files"
 ensure_repository "$SCRIPTS_REPO" "$TARGET_HOME/scripts"
 
+DOTFILES_COMMIT_FILE="$BACKUP_ROOT/data/dotfiles-commit.txt"
+
+if [[ -f "$DOTFILES_COMMIT_FILE" ]]; then
+  DOTFILES_COMMIT=$(<"$DOTFILES_COMMIT_FILE")
+
+  [[ "$DOTFILES_COMMIT" =~ ^[0-9a-f]{40}$ ]] ||
+    die "Invalid dotfiles commit"
+
+  as_target git -C "$TARGET_HOME/dot_files" \
+    fetch origin "$DOTFILES_COMMIT"
+
+  as_target git -C "$TARGET_HOME/dot_files" \
+    checkout --detach "$DOTFILES_COMMIT"
+else
+  warn "Legacy snapshot: dotfiles version is not pinned"
+fi
+
 as_target stow \
   --dir="$TARGET_HOME/dot_files" \
   --target="$TARGET_HOME" \

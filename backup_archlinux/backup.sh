@@ -138,6 +138,18 @@ for dir in "${CHECK_DIRS[@]}"; do
   fi
 done
 
+require_commands git
+
+git -C "$DOTFILES_DIR" rev-parse \
+  --is-inside-work-tree >/dev/null ||
+  die "dot_files is not a Git repository"
+
+[[ -z "$(git -C "$DOTFILES_DIR" status --porcelain)" ]] ||
+  die "Commit or preserve dot_files changes before creating a snapshot"
+
+git -C "$DOTFILES_DIR" rev-parse HEAD \
+  >"$DATA_DIR/dotfiles-commit.txt"
+
 echo "Publishing backup..."
 
 # Publish a complete generation as a separate directory.
@@ -156,6 +168,7 @@ mkdir -p -- "$BACKUP_ROOT/snapshots"
     >SHA256SUMS
 
   sha256sum data/wezterm-status.txt >>SHA256SUMS
+  sha256sum data/dotfiles-commit.txt >>SHA256SUMS
 
   if [[ -f data/secure_data.tar.gz.gpg ]]; then
     sha256sum data/secure_data.tar.gz.gpg >>SHA256SUMS
