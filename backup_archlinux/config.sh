@@ -1,0 +1,44 @@
+#!/bin/bash
+# Trusted configuration sourced as Bash code; no workflow actions here.
+# Environment variables may override scalar defaults.
+
+DOTFILES_DIR="${DOTFILES_DIR:-$HOME/dot_files}"
+SCRIPTS_DIR="${SCRIPTS_DIR:-$HOME/scripts}"
+BACKUP_STORAGE_ROOT="${BACKUP_STORAGE_ROOT:-$SCRIPTS_DIR/backup_archlinux}"
+
+TARGET_USER="${TARGET_USER:-xuanwu}"
+DOTFILES_REPO="${DOTFILES_REPO:-https://github.com/MaxwellWx/dot_files.git}"
+SCRIPTS_REPO="${SCRIPTS_REPO:-https://github.com/MaxwellWx/scripts.git}"
+AUR_HELPER_REPO="${AUR_HELPER_REPO:-https://aur.archlinux.org/yay-bin.git}"
+
+PROXY_URL="${PROXY_URL:-}"
+SOCKS_URL="${SOCKS_URL:-}"
+REVIEW_PARENT="${REVIEW_PARENT:-/var/lib/backlinux/system-config-review}"
+
+SYSTEM_CONFIGS=(
+  etc/pacman.conf
+  etc/pacman.d/mirrorlist
+  etc/makepkg.conf
+)
+
+CHECK_DIRS=(
+  "$DOTFILES_DIR"
+  "$SCRIPTS_DIR"
+  "$HOME/Code_Program"
+  "$HOME/singularity_def_files"
+)
+
+REQUIRED_FILES=(
+  pkg-lists/pkglist-pacman.txt
+  pkg-lists/pkglist-aur.txt
+  data/default_shell.txt
+  data/sys_config.tar.gz
+)
+
+BOOTSTRAP_PACKAGES=(
+  base-devel git stow sudo wget tar openssh gnupg
+)
+
+STOW_PACKAGES=(
+  aria2 git nushell nvim rclone ssh topiary
+)

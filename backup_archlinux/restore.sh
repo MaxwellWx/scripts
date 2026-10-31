@@ -1,44 +1,82 @@
 #!/bin/bash
 
-# Exit immediately if a command exits with a non-zero status
-set -e
+set -Eeuo pipefail
+umask 077
 
-# Core configurations
-TARGET_USER="xuanwu"
-TARGET_HOME="/home/$TARGET_USER"
-DOTFILES_REPO="https://github.com/MaxwellWx/dot_files.git"
-SCRIPTS_REPO="https://github.com/MaxwellWx/scripts.git"
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+source "$SCRIPT_DIR/common.sh"
+source "$SCRIPT_DIR/config.sh"
 
-# Proxy configurations (Centralized)
-PROXY_URL="http://127.0.0.1:7890"
-SOCKS_URL="socks5://127.0.0.1:7890"
+trap 'printf "Error: failed at line %s\n" "$LINENO" >&2' ERR
 
-# Intercept check: Must be executed as root
-if [ "$EUID" -ne 0 ]; then
-  echo "Error: This restore pipeline MUST be executed as root."
-  exit 1
+[[ "$EUID" -eq 0 ]] ||
+  die "Run this script as root"
+
+[[ $# -ge 1 && $# -le 2 ]] ||
+  die "Usage: $0 SNAPSHOT_DIRECTORY [--skip-credentials]"
+
+SKIP_CREDENTIALS=0
+
+if [[ $# -eq 2 ]]; then
+  [[ "$2" == "--skip-credentials" ]] ||
+    die "Unknown option: $2"
+  SKIP_CREDENTIALS=1
 fi
+
+[[ "$TARGET_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] ||
+  die "Unsupported target username: $TARGET_USER"
+
+[[ "$TARGET_USER" != root ]] ||
+  die "The target user must not be root"
+
+TARGET_HOME=""
+TARGET_GROUP=""
+
+require_commands \
+  realpath sha256sum tar gpg getent \
+  pacman pacman-key runuser passwd useradd
+
+BACKUP_ROOT=$(realpath -- "$1")
+
+[[ -d "$BACKUP_ROOT" ]] ||
+  die "Snapshot directory not found"
+
+[[ -f "$BACKUP_ROOT/COMPLETE" ]] ||
+  die "Snapshot is incomplete or uses an unsupported legacy format"
+
+[[ -s "$BACKUP_ROOT/SHA256SUMS" ]] ||
+  die "Checksum manifest is missing or empty"
+
+for file in "${REQUIRED_FILES[@]}"; do
+  [[ -f "$BACKUP_ROOT/$file" ]] ||
+    die "Required snapshot file is missing: $file"
+done
+
+[[ -s "$BACKUP_ROOT/pkg-lists/pkglist-pacman.txt" ]] ||
+  die "Official package list is empty"
+
+(
+  cd -- "$BACKUP_ROOT"
+  sha256sum --check SHA256SUMS
+) || die "Snapshot verification failed"
 
 echo "=== Arch Linux WSL Restore Pipeline ==="
+printf 'Snapshot: %s\n' "$BACKUP_ROOT"
+printf 'Target user: %s\n' "$TARGET_USER"
 
-SCRIPT_DIR=$(dirname "$(realpath "$0")")
-if [ -d "$SCRIPT_DIR/data" ]; then
-  BACKUP_ROOT="$SCRIPT_DIR"
-elif [ -d "$SCRIPT_DIR/backup_archlinux/data" ]; then
-  BACKUP_ROOT="$SCRIPT_DIR/backup_archlinux"
-else
-  echo "Error: Cannot locate backup data directory."
-  exit 1
-fi
-echo "  -> Resolved BACKUP_ROOT: $BACKUP_ROOT"
+echo "[0/10] Stage system configurations for review..."
 
-echo "[0/10] Restore system configurations..."
-if [ -f "$BACKUP_ROOT/data/sys_config.tar.gz" ]; then
-  tar -xzf "$BACKUP_ROOT/data/sys_config.tar.gz" -C /
-  echo "  -> System configs (pacman.conf, mirrorlist) restored."
-else
-  echo "  -> Warning: sys_config.tar.gz not found. Skipping."
-fi
+mkdir -p -- "$REVIEW_PARENT"
+
+SYSTEM_CONFIG_REVIEW_DIR=$(mktemp -d "$REVIEW_PARENT/review.XXXXXXXX")
+
+tar -xzf "$BACKUP_ROOT/data/sys_config.tar.gz" \
+  -C "$SYSTEM_CONFIG_REVIEW_DIR"
+
+printf '  -> Saved configuration files: %s\n' \
+  "$SYSTEM_CONFIG_REVIEW_DIR"
+
+warn "Review and merge these files separately; system files were not replaced"
 
 echo "[1/10] Configure System Locale (UTF-8)..."
 if grep -q "^#en_US.UTF-8 UTF-8" /etc/locale.gen; then
@@ -60,41 +98,123 @@ else
 fi
 pacman -Sy --noconfirm archlinux-keyring
 pacman -Su --noconfirm
-pacman -S --needed --noconfirm base-devel git stow sudo wget tar openssh gnupg
+pacman -S --needed --noconfirm "${BOOTSTRAP_PACKAGES[@]}"
 
-echo "[3/10] Setup target user ($TARGET_USER) and privileges..."
-if ! id "$TARGET_USER" &>/dev/null; then
-  useradd -m -G wheel -s /bin/bash "$TARGET_USER"
-  echo "%wheel ALL=(ALL:ALL) NOPASSWD: ALL" >/etc/sudoers.d/wheel_nopasswd
+echo "[3/10] Configure target user and interactive sudo..."
+
+require_commands sudo visudo install id cut
+
+[[ -t 0 && -t 1 ]] ||
+  die "Interactive user setup requires a terminal"
+
+NEW_USER=0
+
+if ! id "$TARGET_USER" >/dev/null 2>&1; then
+  useradd -m -s /bin/bash "$TARGET_USER"
+  NEW_USER=1
 fi
 
-cat <<EOF >/etc/wsl.conf
-[user]
-default=$TARGET_USER
-EOF
+TARGET_HOME=$(getent passwd "$TARGET_USER" | cut -d: -f6)
+TARGET_GROUP=$(id -gn "$TARGET_USER")
 
-echo "[4/10] Migrate restore scripts and data..."
-if [[ "$BACKUP_ROOT" != "$TARGET_HOME"* ]]; then
-  echo "  -> Migrating repository to $TARGET_HOME..."
-  TARGET_BACKUP_ROOT="$TARGET_HOME/backup_archlinux"
-  cp -r "$BACKUP_ROOT" "$TARGET_BACKUP_ROOT"
-  chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_BACKUP_ROOT"
-  BACKUP_ROOT="$TARGET_BACKUP_ROOT"
+[[ "$TARGET_HOME" == /* && "$TARGET_HOME" != / ]] ||
+  die "Invalid target home: $TARGET_HOME"
+
+[[ -d "$TARGET_HOME" ]] ||
+  die "Target home does not exist: $TARGET_HOME"
+
+if ((NEW_USER)); then
+  printf '\nSet the login password for %s.\n' "$TARGET_USER"
+  passwd "$TARGET_USER"
 fi
 
-echo "[5/10] Restore sensitive credentials (SSH & GPG)..."
-if [ -f "$BACKUP_ROOT/data/secure_data.tar.gz.gpg" ]; then
-  gpg --yes --pinentry-mode loopback --decrypt --output "$BACKUP_ROOT/data/secure_data.tar.gz" "$BACKUP_ROOT/data/secure_data.tar.gz.gpg"
-  tar -xzf "$BACKUP_ROOT/data/secure_data.tar.gz" -C "$TARGET_HOME/"
-  rm -f "$BACKUP_ROOT/data/secure_data.tar.gz"
+# Install a password-required sudo rule for this user only.
+(
+  sudoers_tmp=$(mktemp)
+  trap 'rm -f -- "$sudoers_tmp"' EXIT
 
-  chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.ssh" "$TARGET_HOME/.gnupg" 2>/dev/null || true
-  chmod 700 "$TARGET_HOME/.ssh" "$TARGET_HOME/.gnupg" 2>/dev/null || true
-  find "$TARGET_HOME/.ssh" -type f -exec chmod 600 {} \; 2>/dev/null || true
-  find "$TARGET_HOME/.ssh" -type f -name "*.pub" -exec chmod 644 {} \; 2>/dev/null || true
-  echo "  -> Credentials restored and secured."
+  printf '%s ALL=(ALL:ALL) PASSWD: ALL\n' \
+    "$TARGET_USER" >"$sudoers_tmp"
+
+  visudo -cf "$sudoers_tmp"
+
+  install \
+    -o root \
+    -g root \
+    -m 0440 \
+    "$sudoers_tmp" \
+    "/etc/sudoers.d/90-backlinux-$TARGET_USER"
+)
+
+visudo -c
+
+printf '\nVerify sudo access using the password for %s.\n' \
+  "$TARGET_USER"
+
+# Clear a previous timestamp so this step really checks authentication.
+as_target sudo -k
+
+as_target sudo -v ||
+  die "Sudo authentication failed. Check the target user's password and sudo policy"
+
+printf '\nWSL default-user setting, if needed:\n'
+printf '[user]\ndefault=%s\n' "$TARGET_USER"
+
+echo "[4/10] Keep snapshot at its original location..."
+
+echo "[5/10] Restore sensitive credentials..."
+
+SECURE_ARCHIVE="$BACKUP_ROOT/data/secure_data.tar.gz.gpg"
+
+if ((SKIP_CREDENTIALS)); then
+  warn "Credential restoration explicitly skipped"
+elif [[ -f "$SECURE_ARCHIVE" ]]; then
+  # Refuse to overwrite existing credentials.
+  for name in .ssh .gnupg; do
+    [[ ! -e "$TARGET_HOME/$name" && ! -L "$TARGET_HOME/$name" ]] ||
+      die "Credential destination already exists: $TARGET_HOME/$name"
+  done
+
+  restore_tmp=$(mktemp -d)
+  chmod 700 "$restore_tmp"
+  trap 'rm -rf -- "$restore_tmp"' EXIT
+
+  # Decrypt fully before extraction, so a failed decrypt cannot
+  # partially overwrite the target home.
+  gpg \
+    --pinentry-mode loopback \
+    --decrypt \
+    --output "$restore_tmp/credentials.tar.gz" \
+    "$SECURE_ARCHIVE"
+
+  mkdir "$restore_tmp/unpacked"
+
+  tar \
+    --extract \
+    --gzip \
+    --file="$restore_tmp/credentials.tar.gz" \
+    --directory="$restore_tmp/unpacked" \
+    --no-same-owner \
+    --no-same-permissions
+
+  for name in .ssh .gnupg; do
+    source_dir="$restore_tmp/unpacked/$name"
+
+    [[ -d "$source_dir" && ! -L "$source_dir" ]] || continue
+
+    cp -a -- "$source_dir" "$TARGET_HOME/$name"
+    chown -hR "$TARGET_USER:$TARGET_GROUP" "$TARGET_HOME/$name"
+
+    find "$TARGET_HOME/$name" -type d -exec chmod 700 {} +
+    find "$TARGET_HOME/$name" -type f -exec chmod 600 {} +
+  done
+
+  rm -rf -- "$restore_tmp"
+  trap - EXIT
+
+  echo "  -> Credentials restored."
 else
-  echo "  -> No secure data archive found. Skipping."
+  echo "  -> No credential archive. Skipping."
 fi
 
 echo "[6/10] Install pkgs from pacman..."
@@ -102,101 +222,190 @@ PKG_LIST_DIR="$BACKUP_ROOT/pkg-lists"
 if [ -f "$PKG_LIST_DIR/pkglist-pacman.txt" ]; then
   pacman -S --needed --noconfirm - <"$PKG_LIST_DIR/pkglist-pacman.txt"
 else
-  echo "  -> Error: pkglist-pacman.txt not found."
+  die "pkglist-pacman.txt not found"
 fi
 
-echo "[7/10] Deploy AUR helper (yay)..."
-su -s /bin/bash "$TARGET_USER" <<EOF
-set -e
-export http_proxy="$PROXY_URL"
-export https_proxy="$PROXY_URL"
-export all_proxy="$SOCKS_URL"
+echo "[7/10] Deploy AUR helper..."
 
-if ! command -v yay &>/dev/null; then
-  echo "  -> Installing yay via proxy..."
-  rm -rf /tmp/yay  
-  git clone https://aur.archlinux.org/yay-bin.git /tmp/yay
-  cd /tmp/yay
-  makepkg -si --noconfirm
-  rm -rf /tmp/yay
-else
+as_target bash -s -- "$TARGET_HOME" "$AUR_HELPER_REPO" <<'BASH'
+set -Eeuo pipefail
+
+cd -- "$1"
+
+if command -v yay >/dev/null 2>&1; then
   echo "  -> yay is already installed."
-fi
-EOF
-
-echo "[8/10] Install pkgs from AUR..."
-if [ -f "$PKG_LIST_DIR/pkglist-aur.txt" ]; then
-  AUR_PKGS=$(grep -v '^#' "$PKG_LIST_DIR/pkglist-aur.txt" | grep -vwE 'yay|yay-bin' | tr '\n' ' ' | xargs)
-
-  if [ -n "$AUR_PKGS" ]; then
-    sudo -u "$TARGET_USER" bash -c "
-      export http_proxy=\"$PROXY_URL\"
-      export https_proxy=\"$PROXY_URL\"
-      export all_proxy=\"$SOCKS_URL\"
-      yay -S --needed --noconfirm $AUR_PKGS
-    "
-  else
-    echo "  -> Notice: AUR package list is empty."
-  fi
-else
-  echo "  -> Error: pkglist-aur.txt not found."
+  exit 0
 fi
 
-echo "[9/10] Clone and stow dotfiles..."
-su -s /bin/bash "$TARGET_USER" <<EOF
-set -e
-export http_proxy="$PROXY_URL"
-export https_proxy="$PROXY_URL"
-export all_proxy="$SOCKS_URL"
+build_dir=$(mktemp -d /tmp/backlinux-yay.XXXXXXXX)
+trap 'rm -rf -- "$build_dir"' EXIT
 
-if [ ! -d "$TARGET_HOME/dot_files" ]; then
-  echo "  -> Cloning dot_files repository..."
-  git clone "$DOTFILES_REPO" "$TARGET_HOME/dot_files"
-else
-  echo "  -> dot_files exists. Pulling latest changes..."
-  cd "$TARGET_HOME/dot_files" && git pull origin main || true
-fi
+git clone \
+  "$2" \
+  "$build_dir/yay-bin"
 
-echo "  -> Executing stow configuration..."
-cd "$TARGET_HOME/dot_files" || exit
-for target_dir in */; do
-  dir_name="\${target_dir%/}"
-  if [[ "$dir_name" =~ ^(\.git|windows_configs)$ ]]; then
+cd -- "$build_dir/yay-bin"
+makepkg -si --noconfirm
+BASH
+
+echo "[8/10] Install foreign packages..."
+
+PKG_LIST_DIR="$BACKUP_ROOT/pkg-lists"
+AUR_PACKAGES=()
+
+while IFS= read -r pkg || [[ -n "$pkg" ]]; do
+  pkg=${pkg%%#*}
+  pkg=${pkg#"${pkg%%[![:space:]]*}"}
+  pkg=${pkg%"${pkg##*[![:space:]]}"}
+
+  [[ -n "$pkg" ]] || continue
+
+  [[ "$pkg" =~ ^[a-zA-Z0-9@_+][a-zA-Z0-9@._+-]*$ ]] ||
+    die "Invalid package name: $pkg"
+
+  case "$pkg" in
+  yay | yay-bin)
     continue
-  fi
-  stow --restow -t "$TARGET_HOME" "\$dir_name"
-done
+    ;;
+  topiary)
+    pkg=topiary-bin
+    ;;
+  esac
 
-if [ ! -d "$TARGET_HOME/scripts" ]; then
-  echo "  -> Cloning scripts repository..."
-  git clone "$SCRIPTS_REPO" "$TARGET_HOME/scripts"
+  AUR_PACKAGES+=("$pkg")
+done <"$PKG_LIST_DIR/pkglist-aur.txt"
+
+if ((${#AUR_PACKAGES[@]} > 0)); then
+  as_target yay \
+    -S --needed --noconfirm -- "${AUR_PACKAGES[@]}"
 else
-  echo "  -> scripts exists. Pulling latest changes..."
-  cd "$TARGET_HOME/scripts" && git pull origin main || true
+  echo "  -> No foreign packages to install."
 fi
-EOF
+
+echo "[9/10] Prepare repositories and deploy dotfiles..."
+
+ensure_repository() {
+  local url=$1
+  local destination=$2
+  local actual_url
+
+  if [[ ! -e "$destination" ]]; then
+    as_target git clone -- "$url" "$destination"
+    return
+  fi
+
+  as_target git -C "$destination" rev-parse \
+    --is-inside-work-tree >/dev/null ||
+    die "Existing path is not a Git repository: $destination"
+
+  actual_url=$(as_target git -C "$destination" remote get-url origin)
+
+  [[ "$actual_url" == "$url" ]] ||
+    die "Unexpected origin in $destination: $actual_url"
+
+  if [[ -n "$(as_target git -C "$destination" status --porcelain)" ]]; then
+    die "Repository contains local changes: $destination"
+  fi
+
+  echo "  -> Keeping existing repository: $destination"
+}
+
+ensure_repository "$DOTFILES_REPO" "$TARGET_HOME/dot_files"
+ensure_repository "$SCRIPTS_REPO" "$TARGET_HOME/scripts"
+
+as_target stow \
+  --dir="$TARGET_HOME/dot_files" \
+  --target="$TARGET_HOME" \
+  --simulate \
+  --restow \
+  -- "${STOW_PACKAGES[@]}"
+
+as_target stow \
+  --dir="$TARGET_HOME/dot_files" \
+  --target="$TARGET_HOME" \
+  --restow \
+  -- "${STOW_PACKAGES[@]}"
 
 echo "[-] Restore Windows WezTerm configuration..."
-WIN_PROFILE_CMD=$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r')
 
-if [ -n "$WIN_PROFILE_CMD" ]; then
-  WIN_HOME=$(wslpath "$WIN_PROFILE_CMD")
-  WEZTERM_DOTFILES_DIR="$TARGET_HOME/dot_files/windows_configs/wezterm"
-  WIN_CONFIG_PARENT="$WIN_HOME/.config"
-  WEZTERM_WIN_DIR="$WIN_CONFIG_PARENT/wezterm"
+WEZTERM_ARCHIVE="$BACKUP_ROOT/data/wezterm.tar.gz"
+WIN_HOME=""
 
-  if [ -d "$WEZTERM_DOTFILES_DIR" ]; then
-    sudo -u "$TARGET_USER" bash -c "
-      mkdir -p '$WIN_CONFIG_PARENT'
-      rm -rf '$WEZTERM_WIN_DIR' 2>/dev/null || true
-      cp -r '$WEZTERM_DOTFILES_DIR' '$WEZTERM_WIN_DIR'
-    "
-    echo "  -> Restored WezTerm config to Windows at $WEZTERM_WIN_DIR as $TARGET_USER."
+if [[ -f "$WEZTERM_ARCHIVE" ]]; then
+  WIN_HOME=$(resolve_windows_home)
+
+  if [[ -n "$WIN_HOME" ]]; then
+    # Run from an accessible directory, and pass paths as arguments.
+    (
+      transfer_dir=$(mktemp -d "$TARGET_HOME/.backlinux-transfer.XXXXXXXX")
+      trap 'rm -rf -- "$transfer_dir"' EXIT
+
+      install \
+        -o "$TARGET_USER" \
+        -g "$TARGET_GROUP" \
+        -m 0600 \
+        "$WEZTERM_ARCHIVE" \
+        "$transfer_dir/wezterm.tar.gz"
+
+      chown "$TARGET_USER:$TARGET_GROUP" "$transfer_dir"
+      chmod 700 "$transfer_dir"
+
+      cd -- "$TARGET_HOME"
+
+      as_target bash -s -- \
+        "$WIN_HOME" \
+        "$transfer_dir/wezterm.tar.gz" <<'BASH'
+set -Eeuo pipefail
+
+win_home=$1
+archive=$2
+
+parent="$win_home/.config"
+destination="$parent/wezterm"
+
+mkdir -p -- "$parent"
+
+staging=$(mktemp -d "$parent/.wezterm-restore.XXXXXXXX")
+trap 'rm -rf -- "$staging"' EXIT
+
+mkdir "$staging/config"
+
+tar -xzf "$archive" \
+  -C "$staging/config" \
+  --no-same-owner \
+  --no-same-permissions
+
+previous=""
+
+if [[ -e "$destination" || -L "$destination" ]]; then
+  previous=$(mktemp -d "$parent/wezterm.previous.XXXXXXXX")
+  rmdir -- "$previous"
+
+  mv -- "$destination" "$previous"
+fi
+
+if ! mv -- "$staging/config" "$destination"; then
+  if [[ -n "$previous" ]]; then
+    mv -- "$previous" "$destination" ||
+      printf 'Error: rollback failed; previous config: %s\n' \
+        "$previous" >&2
+  fi
+
+  exit 1
+fi
+
+printf '  -> WezTerm restored to %s\n' "$destination"
+
+if [[ -n "$previous" ]]; then
+  printf '  -> Previous configuration retained at %s\n' "$previous"
+fi
+BASH
+    )
   else
-    echo "  -> Notice: No WezTerm config found in dot_files. Skipping."
+    warn "Windows profile unavailable; WezTerm restoration skipped"
   fi
 else
-  echo "  -> Warning: Failed to resolve Windows User Profile path."
+  warn "Snapshot contains no WezTerm archive"
 fi
 
 echo "[10/10] Restore default shell configuration..."
