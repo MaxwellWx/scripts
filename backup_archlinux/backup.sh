@@ -108,13 +108,27 @@ else
 fi
 
 echo "[4/7] Archive system configuration files..."
+
+ARCHIVE_SYSTEM_CONFIGS=("${SYSTEM_CONFIGS[@]}")
+
 for file in "${SYSTEM_CONFIGS[@]}"; do
   [[ -r "/$file" ]] ||
     die "Cannot read system configuration: /$file"
 done
 
+for file in "${OPTIONAL_SYSTEM_CONFIGS[@]}"; do
+  if [[ -e "/$file" ]]; then
+    [[ -r "/$file" ]] ||
+      die "Cannot read optional system configuration: /$file"
+
+    ARCHIVE_SYSTEM_CONFIGS+=("$file")
+  else
+    echo "  -> Optional configuration not found: /$file"
+  fi
+done
+
 tar -czf "$DATA_DIR/sys_config.tar.gz" \
-  -C / -- "${SYSTEM_CONFIGS[@]}"
+  -C / -- "${ARCHIVE_SYSTEM_CONFIGS[@]}"
 
 tar -tzf "$DATA_DIR/sys_config.tar.gz" >/dev/null
 

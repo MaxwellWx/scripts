@@ -16,11 +16,23 @@ AUR_HELPER_REPO="${AUR_HELPER_REPO:-https://aur.archlinux.org/yay-bin.git}"
 PROXY_URL="${PROXY_URL:-}"
 SOCKS_URL="${SOCKS_URL:-}"
 REVIEW_PARENT="${REVIEW_PARENT:-/var/lib/backlinux/system-config-review}"
+# Keep $repo and $arch literal for pacman.
+PACMAN_MIRROR_URL="${PACMAN_MIRROR_URL:-}"
+if [[ -z "$PACMAN_MIRROR_URL" ]]; then
+  PACMAN_MIRROR_URL='https://mirrors.ustc.edu.cn/archlinux/$repo/os/$arch'
+fi
+
+PACMAN_PARALLEL_DOWNLOADS="${PACMAN_PARALLEL_DOWNLOADS:-3}"
+
 
 SYSTEM_CONFIGS=(
   etc/pacman.conf
   etc/pacman.d/mirrorlist
   etc/makepkg.conf
+)
+
+OPTIONAL_SYSTEM_CONFIGS=(
+  etc/wsl.conf
 )
 
 CHECK_DIRS=(

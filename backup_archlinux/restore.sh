@@ -130,6 +130,9 @@ restore_from_published() (
     sha256sum --check --strict SHA256SUMS
   ) || die "Extracted snapshot verification failed"
 
+  echo "Configuring pacman downloads before package installation..."
+  configure_pacman_downloads
+
   # Existing restore preflight requires GnuPG.
   if ! command -v gpg >/dev/null 2>&1; then
     require_commands pacman
@@ -185,6 +188,8 @@ done
   cd -- "$BACKUP_ROOT"
   sha256sum --check SHA256SUMS
 ) || die "Snapshot verification failed"
+echo "Configuring pacman downloads before package installation..."
+configure_pacman_downloads
 
 echo "=== Arch Linux WSL Restore Pipeline ==="
 printf 'Snapshot: %s\n' "$BACKUP_ROOT"

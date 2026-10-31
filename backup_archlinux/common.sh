@@ -106,3 +106,106 @@ publish_snapshot() (
 
   printf 'Publication prepared: %s\n' "$PUBLISHED_DIR/latest.tar.gz"
 )
+
+configure_pacman_downloads() (
+  set -Eeuo pipefail
+
+  [[ "$EUID" -eq 0 ]] ||
+    die "Configuring pacman requires root"
+
+  require_commands awk cp install mktemp pacman-conf
+
+  [[ "$PACMAN_PARALLEL_DOWNLOADS" =~ ^[1-9][0-9]*$ ]] ||
+    die "Invalid PACMAN_PARALLEL_DOWNLOADS"
+
+  case "$PACMAN_DISABLE_DOWNLOAD_TIMEOUT" in
+  0 | 1) ;;
+  *) die "PACMAN_DISABLE_DOWNLOAD_TIMEOUT must be 0 or 1" ;;
+  esac
+
+  [[ "$PACMAN_MIRROR_URL" == https://* &&
+    "$PACMAN_MIRROR_URL" != *[[:space:]]* ]] ||
+    die "PACMAN_MIRROR_URL must be an HTTPS URL without whitespace"
+
+  [[ -f /etc/pacman.conf ]] ||
+    die "/etc/pacman.conf not found"
+
+  # Preserve the original configuration once, including across reruns.
+  if [[ ! -e /etc/pacman.conf.backlinux-before ]]; then
+    cp -a -- \
+      /etc/pacman.conf \
+      /etc/pacman.conf.backlinux-before
+  fi
+
+  if [[ -f /etc/pacman.d/mirrorlist &&
+    ! -e /etc/pacman.d/mirrorlist.backlinux-before ]]; then
+    cp -a -- \
+      /etc/pacman.d/mirrorlist \
+      /etc/pacman.d/mirrorlist.backlinux-before
+  fi
+
+  local work_dir
+  work_dir=$(mktemp -d /etc/.backlinux-pacman.XXXXXXXX)
+  trap 'rm -rf -- "$work_dir"' EXIT
+
+  # Change only download options within [options].
+  awk \
+    -v parallel="$PACMAN_PARALLEL_DOWNLOADS" \
+    -v disable_timeout="$PACMAN_DISABLE_DOWNLOAD_TIMEOUT" '
+    /^[[:space:]]*\[[^]]+\][[:space:]]*$/ {
+      in_options = ($0 ~ /^[[:space:]]*\[options\][[:space:]]*$/)
+
+      print
+
+      if (in_options) {
+        found_options++
+        print "ParallelDownloads = " parallel
+
+        if (disable_timeout == 1) {
+          print "DisableDownloadTimeout"
+        }
+      }
+
+      next
+    }
+
+    in_options &&
+    /^[[:space:]]*ParallelDownloads[[:space:]]*=/ {
+      next
+    }
+
+    in_options &&
+    /^[[:space:]]*DisableDownloadTimeout([[:space:]]*(#.*)?)?$/ {
+      next
+    }
+
+    { print }
+
+    END {
+      if (found_options != 1) {
+        exit 1
+      }
+    }
+  ' /etc/pacman.conf >"$work_dir/pacman.conf"
+
+  printf 'Server = %s\n' "$PACMAN_MIRROR_URL" \
+    >"$work_dir/mirrorlist"
+
+  # Check that pacman can parse the proposed configuration.
+  pacman-conf \
+    --config "$work_dir/pacman.conf" \
+    ParallelDownloads >/dev/null
+
+  install -o root -g root -m 0644 \
+    "$work_dir/mirrorlist" \
+    /etc/pacman.d/mirrorlist
+
+  install -o root -g root -m 0644 \
+    "$work_dir/pacman.conf" \
+    /etc/pacman.conf
+
+  printf 'Pacman mirror: %s\n' "$PACMAN_MIRROR_URL"
+  printf 'Parallel downloads: %s\n' "$PACMAN_PARALLEL_DOWNLOADS"
+  printf 'Download timeout disabled: %s\n' \
+    "$PACMAN_DISABLE_DOWNLOAD_TIMEOUT"
+)
