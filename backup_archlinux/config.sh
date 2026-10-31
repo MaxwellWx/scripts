@@ -5,6 +5,8 @@
 DOTFILES_DIR="${DOTFILES_DIR:-$HOME/dot_files}"
 SCRIPTS_DIR="${SCRIPTS_DIR:-$HOME/scripts}"
 BACKUP_STORAGE_ROOT="${BACKUP_STORAGE_ROOT:-$SCRIPTS_DIR/backup_archlinux}"
+PUBLISHED_DIR="${PUBLISHED_DIR:-$SCRIPT_DIR/published}"
+LOCK_FILE="${LOCK_FILE:-$SCRIPT_DIR/.backup.lock}"
 
 TARGET_USER="${TARGET_USER:-xuanwu}"
 DOTFILES_REPO="${DOTFILES_REPO:-https://github.com/MaxwellWx/dot_files.git}"

@@ -10,6 +10,36 @@ source "$SCRIPT_DIR/config.sh"
 
 trap 'printf "Error: failed at line %s\n" "$LINENO" >&2' ERR
 
+AUTO_PUBLISH=1
+
+case "${1:-}" in
+"")
+  ;;
+--publish)
+  ;;
+--local-only)
+  AUTO_PUBLISH=0
+  ;;
+-h | --help)
+  cat <<'EOF'
+Usage:
+  backup.sh
+  backup.sh --publish
+  backup.sh --local-only
+
+By default, create a local snapshot and prepare its publication.
+Git commit and push are not performed automatically.
+EOF
+  exit 0
+  ;;
+*)
+  die "Unknown option: $1"
+  ;;
+esac
+
+[[ $# -le 1 ]] ||
+  die "Too many arguments"
+
 BACKUP_ROOT="$BACKUP_STORAGE_ROOT"
 
 require_commands pacman tar gpg getent cut mktemp flock sha256sum
@@ -17,7 +47,7 @@ require_commands pacman tar gpg getent cut mktemp flock sha256sum
 mkdir -p -- "$BACKUP_ROOT"
 
 # Prevent concurrent backups from publishing mixed results.
-exec 9>"$BACKUP_ROOT/.backup.lock"
+exec 9>"$LOCK_FILE"
 flock -n 9 || die "Another backup is running"
 
 # Generate all files here first. Existing backup files remain untouched.
@@ -185,5 +215,31 @@ touch "$WORK_DIR/COMPLETE"
 mv -T -- "$WORK_DIR" "$SNAPSHOT_DIR"
 trap - EXIT
 
-echo "=== Backup Accomplished ==="
+echo "=== Local Backup Completed ==="
 printf 'Snapshot: %s\n' "$SNAPSHOT_DIR"
+
+if ((AUTO_PUBLISH)); then
+  echo "Preparing publication..."
+
+  # Use a separate Bash process so errexit remains effective
+  # inside the publication function, even though its result is checked here.
+  # The parent keeps the operation lock throughout publication.
+  if bash -Eeuo pipefail -c '
+    SCRIPT_DIR=$1
+    source "$SCRIPT_DIR/common.sh"
+    source "$SCRIPT_DIR/config.sh"
+
+    publish_snapshot "$2"
+  ' backlinux-publish "$SCRIPT_DIR" "$SNAPSHOT_DIR"; then
+    echo "=== Backup and Publication Completed ==="
+    echo "Git commit and push are still required."
+  else
+    warn "Local backup succeeded, but publication failed"
+    printf 'Snapshot retained: %s\n' "$SNAPSHOT_DIR" >&2
+    printf 'Retry with: bash %q %q\n' \
+      "$SCRIPT_DIR/publish.sh" "$SNAPSHOT_DIR" >&2
+    exit 2
+  fi
+else
+  echo "Publication skipped (--local-only)."
+fi

@@ -9,25 +9,151 @@ source "$SCRIPT_DIR/config.sh"
 
 trap 'printf "Error: failed at line %s\n" "$LINENO" >&2' ERR
 
+usage() {
+  cat <<'EOF'
+Usage:
+  restore.sh [--latest] [--skip-credentials]
+  restore.sh SNAPSHOT_DIRECTORY [--skip-credentials]
+
+Without a snapshot directory, restore from published/latest.tar.gz.
+Run as root in an interactive terminal.
+EOF
+}
+
+SKIP_CREDENTIALS=0
+SNAPSHOT_ARG=""
+LATEST_REQUESTED=0
+
+while (($# > 0)); do
+  case "$1" in
+  --latest)
+    LATEST_REQUESTED=1
+    ;;
+  --skip-credentials)
+    SKIP_CREDENTIALS=1
+    ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  --*)
+    die "Unknown option: $1"
+    ;;
+  *)
+    [[ -z "$SNAPSHOT_ARG" ]] ||
+      die "Only one snapshot directory may be specified"
+
+    SNAPSHOT_ARG=$1
+    ;;
+  esac
+
+  shift
+done
+
+if ((LATEST_REQUESTED)) && [[ -n "$SNAPSHOT_ARG" ]]; then
+  die "Do not combine --latest with a snapshot directory"
+fi
+
 [[ "$EUID" -eq 0 ]] ||
   die "Run this script as root"
 
-[[ $# -ge 1 && $# -le 2 ]] ||
-  die "Usage: $0 SNAPSHOT_DIRECTORY [--skip-credentials]"
-
-SKIP_CREDENTIALS=0
-
-if [[ $# -eq 2 ]]; then
-  [[ "$2" == "--skip-credentials" ]] ||
-    die "Unknown option: $2"
-  SKIP_CREDENTIALS=1
-fi
+[[ -t 0 && -t 1 ]] ||
+  die "Restore requires an interactive terminal"
 
 [[ "$TARGET_USER" =~ ^[a-z_][a-z0-9_-]*$ ]] ||
   die "Unsupported target username: $TARGET_USER"
 
 [[ "$TARGET_USER" != root ]] ||
   die "The target user must not be root"
+
+restore_from_published() (
+  set -Eeuo pipefail
+  umask 077
+
+  local import_dir=""
+  local status
+  local -a restore_args=()
+
+  [[ -f "$PUBLISHED_DIR/latest.tar.gz" ]] ||
+    die "Published archive not found: $PUBLISHED_DIR/latest.tar.gz"
+
+  [[ -s "$PUBLISHED_DIR/SHA256SUMS" ]] ||
+    die "Published checksum manifest is missing"
+
+  require_commands tar sha256sum mktemp flock
+
+  # Read a consistent publication while backup/publish are not writing it.
+  exec 8>"$LOCK_FILE"
+  flock -s -n 8 ||
+    die "Backup or publication is running; retry later"
+
+  (
+    cd -- "$PUBLISHED_DIR"
+    sha256sum --check --strict SHA256SUMS
+  ) || die "Published archive verification failed"
+
+  import_dir=$(mktemp -d /var/tmp/backlinux-import.XXXXXXXX)
+
+  trap '
+    status=$?
+
+    if ((status == 0)); then
+      rm -rf -- "$import_dir"
+    else
+      printf "Restore failed. Import files retained at: %s\n" \
+        "$import_dir" >&2
+    fi
+  ' EXIT
+
+  mkdir "$import_dir/snapshot"
+
+  tar \
+    --extract \
+    --gzip \
+    --file="$PUBLISHED_DIR/latest.tar.gz" \
+    --directory="$import_dir/snapshot" \
+    --no-same-owner \
+    --no-same-permissions
+
+  # The publication has been copied into the private import directory.
+  flock -u 8
+  exec 8>&-
+
+  [[ -f "$import_dir/snapshot/COMPLETE" ]] ||
+    die "Published snapshot has no COMPLETE marker"
+
+  [[ -s "$import_dir/snapshot/SHA256SUMS" ]] ||
+    die "Published snapshot has no checksum manifest"
+
+  (
+    cd -- "$import_dir/snapshot"
+    sha256sum --check --strict SHA256SUMS
+  ) || die "Extracted snapshot verification failed"
+
+  # Existing restore preflight requires GnuPG.
+  if ! command -v gpg >/dev/null 2>&1; then
+    require_commands pacman
+    pacman -Syu --needed gnupg
+  fi
+
+  restore_args=("$import_dir/snapshot")
+
+  if ((SKIP_CREDENTIALS)); then
+    restore_args+=(--skip-credentials)
+  fi
+
+  echo "Snapshot prepared. Starting restore..."
+
+  cd /tmp
+
+  bash "$SCRIPT_DIR/restore.sh" "${restore_args[@]}"
+)
+
+# No directory means: prepare and restore the bundled publication.
+if [[ -z "$SNAPSHOT_ARG" ]]; then
+  restore_from_published
+  exit 0
+fi
 
 TARGET_HOME=""
 TARGET_GROUP=""
@@ -36,7 +162,7 @@ require_commands \
   realpath sha256sum tar gpg getent \
   pacman pacman-key runuser passwd useradd
 
-BACKUP_ROOT=$(realpath -- "$1")
+BACKUP_ROOT=$(realpath -- "$SNAPSHOT_ARG")
 
 [[ -d "$BACKUP_ROOT" ]] ||
   die "Snapshot directory not found"

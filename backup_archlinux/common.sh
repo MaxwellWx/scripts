@@ -37,7 +37,7 @@ resolve_windows_home() {
   local profile windows_home
 
   if ! command -v cmd.exe >/dev/null 2>&1 ||
-     ! command -v wslpath >/dev/null 2>&1; then
+    ! command -v wslpath >/dev/null 2>&1; then
     return 0
   fi
 
@@ -54,3 +54,55 @@ resolve_windows_home() {
 
   return 0
 }
+
+publish_snapshot() (
+  set -Eeuo pipefail
+  umask 077
+
+  local snapshot
+  local work_dir
+
+  require_commands realpath tar sha256sum mktemp gzip
+
+  snapshot=$(realpath -- "$1")
+
+  [[ -f "$snapshot/COMPLETE" ]] ||
+    die "Snapshot is incomplete"
+
+  [[ -s "$snapshot/SHA256SUMS" ]] ||
+    die "Snapshot checksum manifest is missing"
+
+  (
+    cd -- "$snapshot"
+    sha256sum --check --strict SHA256SUMS
+  )
+
+  mkdir -p -- "$PUBLISHED_DIR"
+
+  work_dir=$(mktemp -d "$PUBLISHED_DIR/.publish.XXXXXXXX")
+  trap 'rm -rf -- "$work_dir"' EXIT
+
+  echo "Preparing publication without outer encryption..."
+
+  tar -czf "$work_dir/latest.tar.gz" \
+    -C "$snapshot" .
+
+  # Read the complete archive to detect compression errors.
+  gzip -t "$work_dir/latest.tar.gz"
+
+  (
+    cd -- "$work_dir"
+    sha256sum latest.tar.gz >SHA256SUMS
+    sha256sum --check --strict SHA256SUMS
+  )
+
+  mv -f -- \
+    "$work_dir/latest.tar.gz" \
+    "$PUBLISHED_DIR/latest.tar.gz"
+
+  mv -f -- \
+    "$work_dir/SHA256SUMS" \
+    "$PUBLISHED_DIR/SHA256SUMS"
+
+  printf 'Publication prepared: %s\n' "$PUBLISHED_DIR/latest.tar.gz"
+)
