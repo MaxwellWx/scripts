@@ -3,7 +3,21 @@
 def main [] {
   # path
   let src_dir = ("~/win_downloads" | path expand)
-  let win_ssh_dest = "/mnt/c/Users/15371/.ssh"
+  # Resolve the current Windows user profile.
+  let win_profile = (
+    ^cmd.exe /c 'echo %USERPROFILE%'
+    | str trim
+  )
+
+  if ($win_profile | is-empty) or ($win_profile == '%USERPROFILE%') {
+    error make {
+      msg: "Unable to resolve the Windows user profile."
+    }
+  }
+
+  let win_home = (^wslpath -u $win_profile | str trim)
+  let win_ssh_dest = ($win_home | path join ".ssh")
+
   let wsl_ssh_dest = ("~/.ssh" | path expand)
 
   # check dir
