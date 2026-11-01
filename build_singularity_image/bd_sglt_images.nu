@@ -36,16 +36,16 @@ def main [
   print $"Navigate to working directory: ($work_dir)"
   cd $work_dir
 
-  if ($program_subdir | path type) != dir {
-    error make {msg: $"Source directory missing: ($program_subdir)"}
+  if ($program_subdir | path expand | path type) != dir {
+    error make {msg: $"Source directory missing or invalid: ($program_subdir)"}
   }
 
-  if ($def_file_name | path type) != file {
-    error make {msg: $"Definition missing: ($def_file_name)"}
+  if ($def_file_name | path expand | path type) != file {
+    error make {msg: $"Definition missing or invalid: ($def_file_name)"}
   }
 
   let env_image = $"($program)_env"
-  if ($env_image | path type) != file {
+  if ($env_image | path expand | path type) != file {
     error make {msg: $"Build the environment image first: ($env_image)"}
   }
 
