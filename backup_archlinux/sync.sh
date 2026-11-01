@@ -10,23 +10,23 @@ source "$SCRIPT_DIR/config.sh"
 [[ "$EUID" -ne 0 ]] ||
   die "Run config synchronization as the normal target user"
 
-APPLY=0
+APPLY=1
 
 case "${1:-}" in
 "")
   ;;
---apply)
-  APPLY=1
+--simulate | -n)
+  APPLY=0
   ;;
 *)
-  die "Usage: $0 [--apply]"
+  die "Usage: $0 [--simulate|-n]"
   ;;
 esac
 
 [[ $# -le 1 ]] ||
   die "Too many arguments"
 
-require_commands git stow mktemp tar
+require_commands git stow mktemp tar rsync
 
 [[ -d "$DOTFILES_DIR" ]] ||
   die "dot_files does not exist; use the fresh restore workflow first"
@@ -66,8 +66,82 @@ printf 'Current: %s\nTarget:  %s\n' "$OLD_COMMIT" "$NEW_COMMIT"
 git -C "$DOTFILES_DIR" diff \
   --stat "$OLD_COMMIT" "$NEW_COMMIT"
 
+sync_windows_configs() (
+  set -Eeuo pipefail
+
+  local simulate=$1
+  local win_home staging name repo_path destination
+  local -a options
+
+  win_home=$(resolve_windows_home)
+
+  if [[ -z "$win_home" ]]; then
+    warn "Windows profile unavailable; Windows configuration deployment skipped"
+    exit 0
+  fi
+
+  staging=$(mktemp -d)
+  trap 'rm -rf -- "$staging"' EXIT
+
+  for name in wezterm nushell; do
+    repo_path="windows_configs/$name"
+
+    if ! git -C "$DOTFILES_DIR" cat-file \
+      -e "$NEW_COMMIT:$repo_path" 2>/dev/null; then
+      warn "No tracked Windows configuration found: $repo_path"
+      continue
+    fi
+
+    git -C "$DOTFILES_DIR" archive \
+      "$NEW_COMMIT" -- "$repo_path" |
+      tar -xf - -C "$staging"
+
+    case "$name" in
+    wezterm)
+      destination="$win_home/.config/wezterm"
+      ;;
+    nushell)
+      destination="$win_home/AppData/Roaming/nushell"
+      ;;
+    esac
+
+    options=(-rc --mkpath --itemize-changes)
+
+    if [[ "$name" == nushell ]]; then
+      # Preserve history, plugin registries, and other runtime data.
+      options+=(
+        --include=/config.nu
+        --include=/env.nu
+        --include=/theme.nu
+        --exclude='*'
+      )
+    else
+      # Mirror the managed WezTerm configuration.
+      options+=(--delete --exclude=.git)
+    fi
+
+    if ((simulate)); then
+      options+=(--dry-run)
+    else
+      # Preserve files that will be overwritten or deleted.
+      options+=(
+        --backup
+        "--backup-dir=$BACKUP_DIR/windows-$name"
+      )
+    fi
+
+    printf '\nDeploying Windows %s: %s\n' "$name" "$destination"
+
+    rsync "${options[@]}" \
+      -- "$staging/$repo_path/" "$destination/"
+  done
+)
+
 if ((APPLY == 0)); then
-  printf '\nPreview only. Review the changes, then run with --apply.\n'
+  sync_windows_configs 1
+
+  printf '\nPreview completed. No configuration files were deployed.\n'
+  printf 'Stow conflict checks will run during actual deployment.\n'
   exit 0
 fi
 
@@ -128,5 +202,7 @@ stow \
   --dir="$DOTFILES_DIR" \
   --target="$HOME" \
   --restow "${STOW_PACKAGES[@]}"
+
+sync_windows_configs 0
 
 printf 'Configuration synchronization completed.\n'

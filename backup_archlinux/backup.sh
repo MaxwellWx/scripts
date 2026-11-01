@@ -182,6 +182,51 @@ else
   warn "Windows profile unavailable; skipping WezTerm"
 fi
 
+echo "Backing up Windows Nushell configuration..."
+
+printf 'skipped\n' >"$DATA_DIR/windows-nushell-status.txt"
+
+if [[ -n "$WIN_HOME" ]]; then
+  NUSHELL_WIN_DIR="$WIN_HOME/AppData/Roaming/nushell"
+  NUSHELL_DOTFILES_DIR="$DOTFILES_DIR/windows_configs/nushell"
+
+  if [[ -f "$NUSHELL_WIN_DIR/config.nu" ]]; then
+    mkdir -p -- "$NUSHELL_DOTFILES_DIR"
+
+    # Windows is authoritative for these configuration files.
+    # Exclude history, plugin registries, and runtime data.
+    rsync -rc \
+      --delete \
+      --itemize-changes \
+      --include='/config.nu' \
+      --include='/env.nu' \
+      --include='/theme.nu' \
+      --exclude='*' \
+      -- "$NUSHELL_WIN_DIR/" "$NUSHELL_DOTFILES_DIR/"
+
+    # Archive only the explicitly managed configuration files.
+    NUSHELL_FILES=()
+
+    for name in config.nu env.nu theme.nu; do
+      if [[ -f "$NUSHELL_DOTFILES_DIR/$name" ]]; then
+        NUSHELL_FILES+=("$name")
+      fi
+    done
+
+    tar -czf "$DATA_DIR/windows-nushell.tar.gz" \
+      -C "$NUSHELL_DOTFILES_DIR" -- "${NUSHELL_FILES[@]}"
+
+    tar -tzf "$DATA_DIR/windows-nushell.tar.gz" >/dev/null
+
+    printf 'included\n' >"$DATA_DIR/windows-nushell-status.txt"
+    echo "Windows Nushell configuration synchronized and archived."
+  else
+    warn "Windows Nushell configuration not found: $NUSHELL_WIN_DIR"
+  fi
+else
+  warn "Windows profile unavailable; Nushell backup skipped"
+fi
+
 echo "[7/7] Check git status of core directories..."
 for dir in "${CHECK_DIRS[@]}"; do
   if [ -d "$dir/.git" ]; then
@@ -204,7 +249,7 @@ git -C "$DOTFILES_DIR" rev-parse \
 
 if [[ -n "$(git -C "$DOTFILES_DIR" status --porcelain)" ]]; then
   git -C "$DOTFILES_DIR" status --short
-  warn "dot_files has uncommitted changes; continuing backup. Windows WezTerm is archived separately. Commit and push other dotfiles changes to make them recoverable."
+  warn "dot_files has uncommitted changes; continuing backup. Windows configurations are archived separately. Commit and push other dotfiles changes to make them recoverable."
 fi
 
 git -C "$DOTFILES_DIR" rev-parse HEAD \
@@ -228,6 +273,12 @@ mkdir -p -- "$BACKUP_ROOT/snapshots"
     >SHA256SUMS
 
   sha256sum data/wezterm-status.txt >>SHA256SUMS
+
+  sha256sum data/windows-nushell-status.txt >>SHA256SUMS
+  if [[ -f data/windows-nushell.tar.gz ]]; then
+    sha256sum data/windows-nushell.tar.gz >>SHA256SUMS
+  fi
+
   sha256sum data/dotfiles-commit.txt >>SHA256SUMS
 
   if [[ -f data/secure_data.tar.gz.gpg ]]; then

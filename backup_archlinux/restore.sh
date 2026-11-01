@@ -554,6 +554,79 @@ else
   warn "Snapshot contains no WezTerm archive"
 fi
 
+echo "Restoring Windows Nushell configuration..."
+
+NUSHELL_ARCHIVE="$BACKUP_ROOT/data/windows-nushell.tar.gz"
+
+if [[ -f "$NUSHELL_ARCHIVE" ]]; then
+  WIN_HOME=$(resolve_windows_home)
+
+  if [[ -n "$WIN_HOME" ]]; then
+    (
+      transfer_dir=$(mktemp -d "$TARGET_HOME/.nushell-transfer.XXXXXXXX")
+      trap 'rm -rf -- "$transfer_dir"' EXIT
+
+      install \
+        -o "$TARGET_USER" \
+        -g "$TARGET_GROUP" \
+        -m 0600 \
+        "$NUSHELL_ARCHIVE" \
+        "$transfer_dir/nushell.tar.gz"
+
+      chown "$TARGET_USER:$TARGET_GROUP" "$transfer_dir"
+      chmod 700 "$transfer_dir"
+
+      cd -- "$TARGET_HOME"
+
+      as_target bash -s -- \
+        "$WIN_HOME" \
+        "$transfer_dir/nushell.tar.gz" <<'BASH'
+set -Eeuo pipefail
+umask 077
+
+win_home=$1
+archive=$2
+
+destination="$win_home/AppData/Roaming/nushell"
+mkdir -p -- "$destination"
+
+staging=$(mktemp -d)
+trap 'rm -rf -- "$staging"' EXIT
+
+tar -xzf "$archive" \
+  -C "$staging" \
+  --no-same-owner \
+  --no-same-permissions
+
+[[ -f "$staging/config.nu" ]] || {
+  printf 'Error: Nushell archive contains no config.nu\n' >&2
+  exit 1
+}
+
+previous=$(mktemp -d "$destination/config-before.XXXXXXXX")
+
+# Preserve runtime data and replace only managed configuration files.
+for name in config.nu env.nu theme.nu; do
+  if [[ -f "$staging/$name" ]]; then
+    if [[ -e "$destination/$name" || -L "$destination/$name" ]]; then
+      cp -a -- "$destination/$name" "$previous/"
+    fi
+
+    cp -- "$staging/$name" "$destination/$name"
+  fi
+done
+
+printf 'Windows Nushell restored to: %s\n' "$destination"
+printf 'Previous configuration retained at: %s\n' "$previous"
+BASH
+    )
+  else
+    warn "Windows profile unavailable; Nushell restoration skipped"
+  fi
+else
+  warn "Snapshot contains no Windows Nushell archive; skipping"
+fi
+
 echo "[10/10] Restore default shell configuration..."
 SHELL_FILE="$BACKUP_ROOT/data/default_shell.txt"
 
