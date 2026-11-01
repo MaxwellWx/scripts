@@ -21,13 +21,26 @@ def log [message: string] {
   let timestamp = (date now | format date '%Y-%m-%d %H:%M:%S')
   let log_entry = $"($timestamp): ($message)"
   print $log_entry
-  $log_entry | save --append $log_file
+  $"($log_entry)\n" | save --append $log_file
 }
 
 # check whether path exists
 def check-path [path: string name: string] {
   if not ($path | path exists) {
     log $"ERROR: Path for ($name) not found: ($path). Aborting."
+    exit 1
+  }
+}
+
+# check whether dir is mount point
+def check-mount [mount_path: string] {
+  let result = (
+    ^findmnt --noheadings --mountpoint $mount_path
+    | complete
+  )
+
+  if $result.exit_code != 0 {
+    log $"ERROR: Mount unavailable: ($mount_path)"
     exit 1
   }
 }
@@ -51,47 +64,70 @@ def run-rsync [
   $args = ($args | append $"($dest)/")
 
   # run
-  let final_args = $args
-  do { ^rsync ...$final_args }
-
-  let exit_code = $env.LAST_EXIT_CODE
-  if $exit_code == 0 {
-    log $"SUCCESS: ($description)"
-  } else {
-    log $"ERROR: ($description) failed with code ($exit_code)"
+  try {
+    ^rsync ...$args
+  } catch {|err|
+    log $"ERROR: ($description) failed: ($err.msg)"
+    exit 1
   }
+
+  log $"SUCCESS: ($description)"
 }
 
 # main function
+mkdir ($log_file | path dirname)
 log "=== Starting file synchronization process ==="
 
 # 1. check whether path exists 
-check-path $NAS_home_path "NAS Home Mount"
-check-path $NAS_group_path "NAS Group Mount"
-check-path $terminal_path_win "Windows Mount"
+check-mount $NAS_home_path
+check-mount "/mnt/z"
+check-mount $terminal_path_win
+
+check-path $NAS_group_path "NAS Group directory"
+check-path $terminal_path_linux "Linux source directory"
 
 check-path ($config_base | path join $rule_win2nas) "rule file for Windows to NAS"
 check-path ($config_base | path join $rule_wsl2nas) "rule file for WSL to NAS"
 check-path ($config_base | path join $rule_nas_home2nas_group) "rule file for NAS home to NAS group"
 
 # 2. Windows -> NAS Home
+
 run-rsync $terminal_path_win $NAS_home_path ($config_base | path join $rule_win2nas) "Windows to NAS Home"
 
 # 3. Linux -> NAS Home
 run-rsync $terminal_path_linux $NAS_home_path ($config_base | path join $rule_wsl2nas) "Linux to NAS Home"
 
 # 4. NAS Home -> NAS Group
+
+check-mount $NAS_home_path
+check-mount "/mnt/z"
+check-path $NAS_group_path "NAS Group directory"
+
 run-rsync $NAS_home_path $NAS_group_path ($config_base | path join $rule_nas_home2nas_group) "NAS Home to NAS Group" --delete
 
 # 5. NAS Home -> WebDAV
 log $"Starting sync from ($NAS_home_path) to ustcpan"
 
-do { ^rclone copy -v --progress --transfers 4 --retries 3 --size-only --exclude="#recycle/**" $"($NAS_home_path)/" $"($webdav_remote):NAS_HOME" }
+try {
+  let rclone_args = [
+    "copy"
+    "-v"
+    "--progress"
+    "--transfers"
+    "4"
+    "--retries"
+    "3"
+    "--exclude=#recycle/**"
+    $"($NAS_home_path)/"
+    $"($webdav_remote):NAS_HOME"
+  ]
 
-if $env.LAST_EXIT_CODE == 0 {
-  log "SUCCESS: sync from nas home to webdav"
-} else {
-  log $"ERROR: sync from nas home to webdav failed with code ($env.LAST_EXIT_CODE)"
+  ^rclone ...$rclone_args
+} catch {|err|
+  log $"ERROR: NAS Home to WebDAV failed: ($err.msg)"
+  exit 1
 }
+
+log "SUCCESS: NAS Home to WebDAV"
 
 log "=== All sync operations completed successfully ==="
