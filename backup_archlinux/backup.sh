@@ -204,7 +204,7 @@ git -C "$DOTFILES_DIR" rev-parse \
 
 if [[ -n "$(git -C "$DOTFILES_DIR" status --porcelain)" ]]; then
   git -C "$DOTFILES_DIR" status --short
-  die "dot_files has changes, possibly synchronized from Windows WezTerm. Review, commit and push them, then rerun backup."
+  warn "dot_files has uncommitted changes; continuing backup. Windows WezTerm is archived separately. Commit and push other dotfiles changes to make them recoverable."
 fi
 
 git -C "$DOTFILES_DIR" rev-parse HEAD \

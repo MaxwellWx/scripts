@@ -24,6 +24,8 @@ sudo TARGET_USER=xuanwu bash /path/to/backup_archlinux/restore.sh /path/to/snaps
 
 `BACKUP_STORAGE_ROOT` controls where backups are written; restore always reads the snapshot passed on the command line. System configuration review files go to `REVIEW_PARENT`. Repository checks currently report local changes; they do not back up repository contents or unpushed commits.
 
+Windows WezTerm configuration is authoritative during backup: its contents overwrite `dot_files/windows_configs/wezterm`, including deleting files absent from Windows (except `.git`). The synchronized configuration is also archived in the snapshot. Uncommitted dotfiles changes produce a warning and do not stop backup. The snapshot records the current dotfiles HEAD commit; other uncommitted dotfiles changes are not included, so commit and push those separately.
+
 Syntax validation:
 
 ```bash
