@@ -144,7 +144,9 @@ printf '%s\n' "$DEFAULT_SHELL" >"$DATA_DIR/default_shell.txt"
 
 echo "  -> Default shell ($(cat "$DATA_DIR/default_shell.txt")) recorded."
 
-echo "[6/7] Backup Windows WezTerm configuration..."
+echo "[6/7] Sync and backup Windows WezTerm configuration..."
+
+require_commands rsync
 
 WIN_HOME=$(resolve_windows_home)
 
@@ -153,16 +155,28 @@ printf 'skipped\n' >"$DATA_DIR/wezterm-status.txt"
 if [[ -n "$WIN_HOME" ]]; then
   WEZTERM_WIN_DIR="$WIN_HOME/.config/wezterm"
 
-  if [[ -d "$WEZTERM_WIN_DIR" ]]; then
+  if [[ -d "$WEZTERM_WIN_DIR" &&
+    -f "$WEZTERM_WIN_DIR/wezterm.lua" ]]; then
+    mkdir -p -- "$WEZTERM_DOTFILES_DIR"
+
+    # Windows is authoritative; mirror its contents into dotfiles.
+    # Ignore Windows permissions and timestamps; compare file contents.
+    rsync -rc \
+      --delete \
+      --itemize-changes \
+      --exclude='.git' \
+      -- "$WEZTERM_WIN_DIR/" "$WEZTERM_DOTFILES_DIR/"
+
+    # Archive the synchronized WSL copy.
     tar -czf "$DATA_DIR/wezterm.tar.gz" \
-      -C "$WEZTERM_WIN_DIR" .
+      -C "$WEZTERM_DOTFILES_DIR" .
 
     tar -tzf "$DATA_DIR/wezterm.tar.gz" >/dev/null
 
     printf 'included\n' >"$DATA_DIR/wezterm-status.txt"
-    echo "  -> WezTerm configuration archived."
+    echo "  -> Windows WezTerm synchronized and archived."
   else
-    warn "WezTerm directory not found: $WEZTERM_WIN_DIR"
+    warn "Windows WezTerm configuration missing or incomplete: $WEZTERM_WIN_DIR"
   fi
 else
   warn "Windows profile unavailable; skipping WezTerm"
@@ -188,8 +202,10 @@ git -C "$DOTFILES_DIR" rev-parse \
   --is-inside-work-tree >/dev/null ||
   die "dot_files is not a Git repository"
 
-[[ -z "$(git -C "$DOTFILES_DIR" status --porcelain)" ]] ||
-  die "Commit or preserve dot_files changes before creating a snapshot"
+if [[ -n "$(git -C "$DOTFILES_DIR" status --porcelain)" ]]; then
+  git -C "$DOTFILES_DIR" status --short
+  die "dot_files has changes, possibly synchronized from Windows WezTerm. Review, commit and push them, then rerun backup."
+fi
 
 git -C "$DOTFILES_DIR" rev-parse HEAD \
   >"$DATA_DIR/dotfiles-commit.txt"
