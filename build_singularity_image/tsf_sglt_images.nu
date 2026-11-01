@@ -3,11 +3,26 @@
 # Define the main function with type annotations for better error checking
 def main [
   program: string # The name of the program/project to build
-  eshell: string # The target environment ('hf', 'ty', 'wz' or 'local')
+  eshell: string # hf_home/hf_share/ty_home/ty_share/wz_home/wz_share/local
 ] {
   # -------------------------------------------------------------------------
   # 1. Configuration & Path Resolution
   # -------------------------------------------------------------------------
+  let targets = [
+    hf_home
+    hf_share
+    ty_home
+    ty_share
+    wz_home
+    wz_share
+    local
+  ]
+
+  if $eshell not-in $targets {
+    error make {
+      msg: $"Unknown target: ($eshell). Choose: ($targets | str join ', ')"
+    }
+  }
 
   # Use 'match' to map the program name to its specific subdirectory.
   let program_subdir = match $program {
@@ -18,8 +33,7 @@ def main [
     "fatido" => "FaTiDo"
     "warpx" => "WarpX"
     _ => {
-      # Exit gracefully if an unknown program is passed
-      error make {msg: $"Unknown program: ($program)"}
+      error make {msg: $"Unknown target: ($eshell)"}
     }
   }
 

@@ -36,14 +36,31 @@ def main [
   print $"Navigate to working directory: ($work_dir)"
   cd $work_dir
 
+  if ($program_subdir | path type) != dir {
+    error make {msg: $"Source directory missing: ($program_subdir)"}
+  }
+
+  if ($def_file_name | path type) != file {
+    error make {msg: $"Definition missing: ($def_file_name)"}
+  }
+
+  let env_image = $"($program)_env"
+  if ($env_image | path type) != file {
+    error make {msg: $"Build the environment image first: ($env_image)"}
+  }
+
   # Archive the source code
   print "Archiving source code..."
-  tar -czvf $"($program).tar.gz" $"./($program_subdir)/"
+  tar -czf $"($program).tar.gz" $"./($program_subdir)/"
 
   # Build the Singularity container
   # 'sudo -E' preserves environment variables needed for the build
   print $"Building Singularity image: ($image_name)..."
-  sudo -E singularity build --force $image_name $def_file_name
+
+  let pending = $"($image_name).building-(random uuid).sif"
+  ^sudo -E singularity build $pending $def_file_name
+  ^singularity inspect $pending
+  ^sudo mv -f -- $pending $image_name
 
   print "Process completed successfully."
 }

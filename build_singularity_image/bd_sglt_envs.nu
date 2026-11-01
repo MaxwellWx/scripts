@@ -39,7 +39,11 @@ def main [
   # Build the Singularity container
   # 'sudo -E' preserves environment variables needed for the build
   print $"Building Singularity image: ($image_name)..."
-  sudo -E singularity build --force $image_name $def_file_name
+
+  let pending = $"($image_name).building-(random uuid).sif"
+  ^sudo -E singularity build $pending $def_file_name
+  ^singularity inspect $pending
+  ^sudo mv -f -- $pending $image_name
 
   print "Process completed successfully."
 }
