@@ -40,8 +40,9 @@ OPTIONAL_SYSTEM_CONFIGS=(
 CHECK_DIRS=(
   "$DOTFILES_DIR"
   "$SCRIPTS_DIR"
-  "$HOME/Code_Program"
-  "$HOME/singularity_def_files"
+  "$HOME/Code_Program/smilei_fatido/Smilei_FaTiDo"
+  "$HOME/Code_Program/warpx/WarpX"
+  "$HOME/apptainer_def_files"
 )
 
 REQUIRED_FILES=(

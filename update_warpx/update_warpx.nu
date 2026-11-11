@@ -6,8 +6,8 @@
 # e.g., `./updatewarpx.nu 1` (updates 1d only)
 # e.g., `./updatewarpx.nu 2 3 rz` (updates 2d, 3d, and rz)
 def main [...targets: string] {
-  alias bd_sglt_images = nu ~/scripts/build_singularity_image/bd_sglt_images.nu
-  alias tsf_sglt_images = nu ~/scripts/build_singularity_image/tsf_sglt_images.nu
+  alias bd_appt_images = nu ~/scripts/build_apptainer_image/bd_appt_images.nu
+  alias tsf_appt_images = nu ~/scripts/build_apptainer_image/tsf_appt_images.nu
 
   # Define all available configurations for target repositories and clusters
   let all_configs = [
@@ -16,18 +16,9 @@ def main [...targets: string] {
 
   # Map user inputs to canonical configuration names
   let mapped_targets = if ($targets | is-empty) {
-    # If no parameters are given, default to all configurations
-    $all_configs | get name
+    ["warpx"]
   } else {
-    $targets | each {|t|
-      match $t {
-        "1" => "warpx_1d"
-        "2" => "warpx_2d"
-        "3" => "warpx_3d"
-        "rz" => "warpx_rz"
-        _ => $t # Fallback to support exact name matching if provided
-      }
-    }
+    $targets
   }
 
   # Filter the configurations based on the mapped target names
@@ -67,9 +58,9 @@ def main [...targets: string] {
       print $"(ansi yellow)Warning: Git pull failed (Exit code: ($env.LAST_EXIT_CODE)). Proceeding with local version.(ansi reset)"
     }
 
-    print $"Building singularity images for ($config.name)..."
+    print $"Building apptainer images for ($config.name)..."
 
-    bd_sglt_images $config.name
+    bd_appt_images $config.name
 
     if $env.LAST_EXIT_CODE != 0 {
       print $"(ansi red)Build failed for ($config.name). Skipping transfers.(ansi reset)"
@@ -88,7 +79,7 @@ def main [...targets: string] {
         print $"Transferring ($config.name) to ($cluster)... [Attempt ($attempt)/($max_retries)]"
 
         # Capture exit code securely without breaking AST parsing
-        let result = do { tsf_sglt_images $config.name $cluster } | complete
+        let result = do { tsf_appt_images $config.name $cluster } | complete
 
         if $result.exit_code == 0 {
           print $"(ansi green)Successfully transferred ($config.name) to ($cluster).(ansi reset)"

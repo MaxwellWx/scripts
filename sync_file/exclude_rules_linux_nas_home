@@ -20,6 +20,12 @@ Code_Program/smilei/smilei
 Code_Program/smilei_fatido/Smilei_FaTiDo/
 Code_Program/smilei_fatido/smilei_fatido_env
 Code_Program/smilei_fatido/smilei_fatido
+Code_Program/smilei_fatido/smilei_fatido_hpcx_env
+Code_Program/smilei_fatido/smilei_fatido_hpcx
+Code_Program/smilei_fatido/smilei_fatido_openmpi_env
+Code_Program/smilei_fatido/smilei_fatido_openmpi
+Code_Program/smilei_fatido/smilei_fatido_intelmpi_env
+Code_Program/smilei_fatido/smilei_fatido_intelmpi
 
 Code_Program/smilei_fatido_no_rad_push/Smilei_FaTiDo_no_rad_push/
 Code_Program/smilei_fatido_no_rad_push/smilei_fatido_no_rad_push_env
